@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+:root {
+  --color-soft-violet: #9d7bff;
+  --color-rose-gold: #e7b7a5;
+  --color-neon-lavender: #c6a0ff;
+  --color-obsidian: #08070e;
+  --color-surface-glass: rgba(18, 14, 28, 0.65);
+  --color-border-glass: rgba(231, 183, 165, 0.16);
+  --color-highlight: rgba(198, 160, 255, 0.25);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #07060d;
+  color: #f3effa;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-x: hidden;
+  user-select: text;
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: 'Outfit', sans-serif;
+}
+
+.font-telemetry {
+  font-family: 'Space Grotesk', monospace;
+}
+
+/* Glassmorphism primitives */
+.glass-panel {
+  background: rgba(16, 12, 26, 0.72);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(231, 183, 165, 0.14);
+  box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.6),
+              0 0 25px -5px rgba(157, 123, 255, 0.08);
+}
+
+.glass-panel-elevated {
+  background: rgba(23, 17, 38, 0.82);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid rgba(198, 160, 255, 0.22);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.7),
+              0 0 30px -5px rgba(231, 183, 165, 0.12);
+}
+
+.glass-pill {
+  background: rgba(30, 22, 48, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(198, 160, 255, 0.18);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-pill:hover {
+  background: rgba(45, 32, 70, 0.75);
+  border-color: rgba(231, 183, 165, 0.35);
+  box-shadow: 0 0 15px rgba(198, 160, 255, 0.2);
+}
+
+.glow-soft-violet {
+  box-shadow: 0 0 25px rgba(157, 123, 255, 0.35);
+}
+
+.glow-rose-gold {
+  box-shadow: 0 0 25px rgba(231, 183, 165, 0.3);
+}
+
+.glow-neon-lavender {
+  box-shadow: 0 0 30px rgba(198, 160, 255, 0.4);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(10, 8, 16, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(157, 123, 255, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(231, 183, 165, 0.45);
+}
+
+/* Atmospheric animations */
+@keyframes pulse-subtle {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+}
+
+@keyframes orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 4s ease-in-out infinite;
+}
+
+.animate-orbit-slow {
+  animation: orbit 30s linear infinite;
+}
+
+.animate-orbit-reverse {
+  animation: orbit 22s linear infinite reverse;
+}
