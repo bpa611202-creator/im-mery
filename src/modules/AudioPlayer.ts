@@ -53,11 +53,13 @@ export class AudioPlayer {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      // Convert 16-bit PCM (little endian) to Float32 [-1, 1]
-      const int16Array = new Int16Array(bytes.buffer);
-      const float32Array = new Float32Array(int16Array.length);
-      for (let i = 0; i < int16Array.length; i++) {
-        float32Array[i] = int16Array[i] / 32768.0;
+      // Convert 16-bit PCM (little endian) to Float32 [-1, 1] using DataView to handle alignment safely
+      const sampleCount = Math.floor(bytes.byteLength / 2);
+      if (sampleCount === 0) return;
+      const dataView = new DataView(bytes.buffer, bytes.byteOffset, sampleCount * 2);
+      const float32Array = new Float32Array(sampleCount);
+      for (let i = 0; i < sampleCount; i++) {
+        float32Array[i] = dataView.getInt16(i * 2, true) / 32768.0;
       }
 
       // Create AudioBuffer
@@ -162,6 +164,7 @@ export class AudioPlayer {
 
     for (const source of this.activeSources) {
       try {
+        source.onended = null;
         source.stop();
         source.disconnect();
       } catch {}
@@ -173,6 +176,19 @@ export class AudioPlayer {
     if (this.isCurrentlyPlaying) {
       this.isCurrentlyPlaying = false;
       this.onPlaybackEndCallback?.();
+    }
+  }
+
+  // Complete cleanup: stops active sources, clears buffers, and closes AudioContext
+  cleanup() {
+    this.stop();
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      try {
+        this.audioContext.close();
+      } catch {}
+      this.audioContext = null;
+      this.gainNode = null;
+      this.analyserNode = null;
     }
   }
 

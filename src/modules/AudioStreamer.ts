@@ -14,13 +14,16 @@ export class AudioStreamer {
   private interruptConsecutiveCount: number = 0;
   private currentVolume: number = 0;
   private frequencyData: Uint8Array = new Uint8Array(64);
+  private currentSessionId: number = 0;
 
   async start(
     onAudioChunk: (base64Pcm: string) => void,
     onUserInterrupt: () => void,
     isAssistantSpeaking: () => boolean
   ): Promise<boolean> {
-    if (this.isRecording) return true;
+    // Stop any existing stream and increment session to guard against duplicate audio tracks
+    this.stop();
+    const sessionId = ++this.currentSessionId;
 
     try {
       this.onAudioChunkCallback = onAudioChunk;
@@ -28,7 +31,7 @@ export class AudioStreamer {
       this.isAssistantSpeakingCheck = isAssistantSpeaking;
 
       // 1. Request microphone stream with clean echo cancellation
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           sampleRate: 16000,
@@ -38,12 +41,24 @@ export class AudioStreamer {
         },
       });
 
+      // Guard against race conditions: if stop was requested while awaiting getUserMedia
+      if (this.currentSessionId !== sessionId) {
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+      this.mediaStream = stream;
+
       // 2. AudioContext locked to 16kHz for Gemini Live API PCM16 requirement
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       this.audioContext = new AudioCtx({ sampleRate: 16000 });
 
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
+      }
+
+      if (this.currentSessionId !== sessionId) {
+        this.stop();
+        return false;
       }
 
       // 3. Setup nodes
@@ -56,7 +71,7 @@ export class AudioStreamer {
       this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       this.processorNode.onaudioprocess = (e: AudioProcessingEvent) => {
-        if (!this.isRecording || this.isMuted) {
+        if (!this.isRecording || this.isMuted || this.currentSessionId !== sessionId) {
           this.currentVolume = 0;
           return;
         }
@@ -94,7 +109,7 @@ export class AudioStreamer {
 
         // Convert Float32Array [-1.0, 1.0] to 16-bit signed PCM little-endian
         const pcm16Base64 = this.floatTo16BitPCMBase64(inputData);
-        if (pcm16Base64 && this.onAudioChunkCallback) {
+        if (pcm16Base64 && this.onAudioChunkCallback && this.currentSessionId === sessionId) {
           this.onAudioChunkCallback(pcm16Base64);
         }
       };
@@ -107,17 +122,22 @@ export class AudioStreamer {
       this.isRecording = true;
       return true;
     } catch (err: any) {
+      if (this.currentSessionId === sessionId) {
+        this.stop();
+      }
       console.warn('[AudioStreamer] Microphone initialization notice:', err?.message || err);
       throw err;
     }
   }
 
   stop() {
+    this.currentSessionId++;
     this.isRecording = false;
     this.currentVolume = 0;
 
     if (this.processorNode) {
       try {
+        this.processorNode.onaudioprocess = null;
         this.processorNode.disconnect();
       } catch {}
       this.processorNode = null;
@@ -130,8 +150,20 @@ export class AudioStreamer {
       this.sourceNode = null;
     }
 
+    if (this.analyserNode) {
+      try {
+        this.analyserNode.disconnect();
+      } catch {}
+      this.analyserNode = null;
+    }
+
     if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((track) => track.stop());
+      try {
+        this.mediaStream.getTracks().forEach((track) => {
+          track.stop();
+          track.enabled = false;
+        });
+      } catch {}
       this.mediaStream = null;
     }
 

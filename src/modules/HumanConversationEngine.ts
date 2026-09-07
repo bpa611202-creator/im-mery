@@ -8,7 +8,7 @@ import {
 } from '../types';
 import { stateManager } from './StateManager';
 
-// Linguistic patterns for incomplete thoughts
+// Linguistic patterns for incomplete thoughts (English & Gujarati / Kathiyawadi)
 const TRAILING_CONJUNCTIONS = [
   'and',
   'but',
@@ -29,6 +29,18 @@ const TRAILING_CONJUNCTIONS = [
   'then',
   'though',
   'cause',
+  // Gujarati & Kathiyawadi conjunctions & continuation connectors
+  'ane',
+  'pan',
+  'etle',
+  'kemke',
+  'ke',
+  'pachi',
+  'pachhi',
+  'ne',
+  'to',
+  'athi',
+  'athva',
 ];
 
 const TRAILING_PREPOSITIONS = [
@@ -47,6 +59,11 @@ const TRAILING_PREPOSITIONS = [
   'toward',
   'towards',
   'as',
+  // Gujarati postpositions
+  'ma',
+  'par',
+  'mate',
+  'thi',
 ];
 
 const HESITATION_MARKERS = [
@@ -62,6 +79,13 @@ const HESITATION_MARKERS = [
   'so basically',
   'kinda',
   'sort of',
+  // Gujarati & Kathiyawadi hesitation markers
+  'are',
+  'are...',
+  'jo ne',
+  'etle...',
+  'kahu to',
+  'vichar karu chu',
 ];
 
 const QUESTION_STARTERS = [
@@ -85,6 +109,20 @@ const QUESTION_STARTERS = [
   'should i',
   'should we',
   'mery',
+  // Gujarati & Kathiyawadi question starters
+  'shu',
+  'su',
+  'kem',
+  'kya',
+  'kyare',
+  'kon',
+  'ketla',
+  'ketlu',
+  'kevi',
+  'kevo',
+  'kevu',
+  'samji',
+  'a kem',
 ];
 
 const SELF_TALK_PATTERNS = [
@@ -112,12 +150,30 @@ const BACKCHANNEL_PALETTE = [
   'Totally...',
 ];
 
+const GUJARATI_BACKCHANNEL_PALETTE = [
+  'હંમ...',
+  'હા...',
+  'બરોબર...',
+  'હું સાંભળું છું...',
+  'સાચું...',
+  'હા, કહો...',
+  'હં...',
+];
+
 const REACTION_PALETTE: Record<string, string[]> = {
   surprised: ['No way...', 'Seriously?', 'Wait, what?', 'Wait... really?'],
   agreement: ['That actually makes sense.', 'Oh, I get it.', 'Exactly.'],
   supportive: ['Okay, keep going. I am listening.', 'Take your time, I am right here.'],
   playful: ["That's kind of funny.", 'Wait, for real?', 'Haha, no way.'],
   excited: ["That's awesome!", 'Oh nice!', 'Love that.'],
+};
+
+const GUJARATI_REACTION_PALETTE: Record<string, string[]> = {
+  surprised: ['અરે વાહ, સાચે?', 'ખરેખર?', 'હેં! એવું?'],
+  agreement: ['સાચી વાત છે.', 'એકદમ બરોબર.', 'સમજી ગઈ.'],
+  supportive: ['હું સાંભળું છું, બોલો.', 'કોઈ વાંધો નહીં, શાંતિથી કહો.'],
+  playful: ['હાહા, મજા આવી!', 'ખરેખર? મજાક કરે છે?'],
+  excited: ['વાહ, જોરદાર!', 'અરે વાહ, મસ્ત!', 'બહુ સરસ!'],
 };
 
 export class HumanConversationEngine {
@@ -207,8 +263,11 @@ export class HumanConversationEngine {
     const clean = text.trim().toLowerCase();
     const words = clean.split(/\s+/).filter(Boolean);
 
-    // Filter out accidental noise, clicks, or short murmurs
-    if (words.length === 0 || (words.length === 1 && words[0].length < 3 && !['hi', 'no', 'ok'].includes(words[0]))) {
+    // Filter out accidental noise, clicks, or short murmurs, while preserving meaningful short words in English, Gujarati & Kathiyawadi
+    const meaningfulShortWords = new Set([
+      'hi', 'no', 'ok', 'ha', 'na', 'hu', 'jo', 'ho', 'ya', 'ye', 'su', 'le', 'are', 'aa', 'ae', 'te', 'to', 'ne', 'chhe', 'che'
+    ]);
+    if (words.length === 0 || (words.length === 1 && words[0].length < 3 && !meaningfulShortWords.has(words[0]))) {
       return {
         isMeaningful: false,
         isIncomplete: false,
@@ -419,7 +478,10 @@ export class HumanConversationEngine {
       clean.split(/\s+/).length < 7 &&
       !analysis.isQuestion
     ) {
-      const reactions = REACTION_PALETTE[analysis.emotion === 'excited' ? 'excited' : 'playful'];
+      const isGujarati = stateManager.getLanguage() === 'gu-IN';
+      const palette = isGujarati ? GUJARATI_REACTION_PALETTE : REACTION_PALETTE;
+      const key = analysis.emotion === 'excited' ? 'excited' : 'playful';
+      const reactions = palette[key] || palette.excited;
       const chosenReaction = reactions[Math.floor(Math.random() * reactions.length)];
 
       this.isEvaluating = false;
@@ -445,7 +507,8 @@ export class HumanConversationEngine {
     // 5. Normal Response / Follow-up
     // Direct question, explicit request, or finished statement expecting interaction
     const isDirectAddress = clean.toLowerCase().includes('mery');
-    const requiresResponse = analysis.isQuestion || isDirectAddress || clean.length > 20;
+    const isConversationalInterjection = /^(ha|na|shu\??|su\??|samji\??|are\.\.\.?|hachu\??|barabar|theek|saras|jo|chal|hale|sachu)\b/i.test(clean);
+    const requiresResponse = analysis.isQuestion || isDirectAddress || clean.length > 15 || isConversationalInterjection;
 
     let decisionMode: ResponseDecisionMode = 'NORMAL_RESPONSE';
     if (!analysis.isQuestion && clean.length > 35 && Math.random() > 0.4) {
@@ -474,8 +537,10 @@ export class HumanConversationEngine {
 
   // Returns a non-repetitive backchannel
   private getUniqueBackchannel(): string {
-    const candidates = BACKCHANNEL_PALETTE.filter((b) => b !== this.lastBackchannelUsed);
-    const chosen = candidates[Math.floor(Math.random() * candidates.length)] || 'Hmm...';
+    const isGujarati = stateManager.getLanguage() === 'gu-IN';
+    const sourcePalette = isGujarati ? GUJARATI_BACKCHANNEL_PALETTE : BACKCHANNEL_PALETTE;
+    const candidates = sourcePalette.filter((b) => b !== this.lastBackchannelUsed);
+    const chosen = candidates[Math.floor(Math.random() * candidates.length)] || (isGujarati ? 'હંમ...' : 'Hmm...');
     this.lastBackchannelUsed = chosen;
     return chosen;
   }

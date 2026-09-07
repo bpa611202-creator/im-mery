@@ -1,8 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AuroraHologram } from './components/AuroraHologram';
-import { MeryStatusBar } from './components/MeryStatusBar';
-import { VoiceSubtitleStage } from './components/VoiceSubtitleStage';
-import { VoiceActionNexus } from './components/VoiceActionNexus';
 import { VoiceOrbStage } from './components/VoiceOrbStage';
 import { ToolNexusDrawer } from './components/ToolNexusDrawer';
 import { TranscriptDrawer } from './components/TranscriptDrawer';
@@ -14,6 +10,11 @@ import { EmotionRadarModal } from './components/EmotionRadarModal';
 import { SafetyConfirmModal } from './components/SafetyConfirmModal';
 import { ApiManagementModal } from './components/ApiManagementModal';
 import { MissingKeyModal } from './components/MissingKeyModal';
+import { ScreenAllowModal } from './components/ScreenAllowModal';
+import { AgentDevStudioModal } from './components/AgentDevStudioModal';
+import { JarvisHologram3D } from './components/JarvisHologram3D';
+import { AnimeAvatar3D } from './components/AnimeAvatar3D';
+import { liveSession } from './modules/LiveSession';
 import { voiceService } from './utils/audio';
 import { systemController } from './utils/systemController';
 import { activityMonitor } from './utils/activityMonitor';
@@ -23,7 +24,12 @@ import { providerManager } from './utils/providerManager';
 import { logger } from './utils/logger';
 import { toolManager } from './modules/ToolManager';
 import { stateManager } from './modules/StateManager';
+import { screenShareService } from './modules/ScreenShareService';
 import { memoryService } from './memory/MemoryService';
+import { memoryManager } from './modules/MemoryManager';
+import { cameraService } from './modules/CameraService';
+import { locationService } from './utils/locationService';
+import { detectSpokenLanguage } from './utils/languageDetector';
 import {
   ChatMessage,
   EmotionType,
@@ -86,6 +92,7 @@ export default function App() {
 
   const [currentEmotion, setCurrentEmotion] = useState<EmotionType>('warm');
   const [hologramState, setHologramState] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
+  const [visualMode, setVisualMode] = useState<'avatar' | 'hologram'>('avatar');
   const [userLiveTranscript, setUserLiveTranscript] = useState<string>('');
   const [merySpokenSubtitle, setMerySpokenSubtitle] = useState<string>(
     "Hey, I'm MERY. What's on your mind today?"
@@ -100,7 +107,6 @@ export default function App() {
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
 
   // Modals & Panels
-  const [activeView, setActiveView] = useState<'live_orb' | 'hologram'>('live_orb');
   const [isToolNexusOpen, setIsToolNexusOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: string } | null>(null);
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false);
@@ -112,7 +118,18 @@ export default function App() {
   const [isApiSettingsOpen, setIsApiSettingsOpen] = useState(false);
   const [missingKeyProtocol, setMissingKeyProtocol] = useState<MissingKeyProtocol | null>(null);
   const [safetyRequest, setSafetyRequest] = useState<SafetyActionRequest | null>(null);
+  const [isScreenAllowOpen, setIsScreenAllowOpen] = useState(false);
+  const [screenAllowReason, setScreenAllowReason] = useState<string | null>(null);
+  const [isAgentDevOpen, setIsAgentDevOpen] = useState(false);
   const [resonance, setResonance] = useState(96);
+  // Chat text visibility configuration (showChatText = false by default for voice-first experience)
+  const [showChatText, setShowChatText] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('mery_show_chat_text') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const fullDuplexRef = useRef(fullDuplexActive);
   fullDuplexRef.current = fullDuplexActive;
@@ -158,6 +175,14 @@ export default function App() {
     });
   }, []);
 
+  // Sync screen share allow modal handler
+  useEffect(() => {
+    screenShareService.setAllowModalHandler((reason) => {
+      setScreenAllowReason(reason || null);
+      setIsScreenAllowOpen(true);
+    });
+  }, []);
+
   // Sync safety handler with system controller
   useEffect(() => {
     systemController.setSafetyHandler((req) => {
@@ -173,6 +198,27 @@ export default function App() {
     return unsub;
   }, []);
 
+  // Sync stateManager voice states to hologramState for reactive 3D animation
+  useEffect(() => {
+    const unsubState = stateManager.onStateChange((st) => {
+      if (st === 'speaking') setHologramState('speaking');
+      else if (st === 'listening') setHologramState('listening');
+      else if (st === 'connecting') setHologramState('thinking');
+      else setHologramState('idle');
+    });
+
+    const unsubConv = stateManager.onConversationStateChange((conv) => {
+      if (conv === 'SPEAKING') setHologramState('speaking');
+      else if (conv === 'EVALUATING_TURN' || conv === 'RESPONDING') setHologramState('thinking');
+      else if (conv === 'USER_SPEAKING' || conv === 'LISTENING') setHologramState('listening');
+    });
+
+    return () => {
+      unsubState();
+      unsubConv();
+    };
+  }, []);
+
   // Save messages to localStorage
   useEffect(() => {
     try {
@@ -180,12 +226,35 @@ export default function App() {
     } catch {}
   }, [messages]);
 
-  // Save memories to localStorage
+  // Synchronize memories with persistent MemoryManager
   useEffect(() => {
-    try {
-      localStorage.setItem('mery_memories', JSON.stringify(memories));
-    } catch {}
-  }, [memories]);
+    memoryManager.initialize().then((all) => {
+      if (all && all.length > 0) {
+        setMemories(
+          all.map((item) => ({
+            id: item.id,
+            text: item.content || item.value || `${item.key}: ${item.value}`,
+            category: (item.category as MemoryCategory) || 'user_preference',
+            createdAt: new Date(item.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+          }))
+        );
+      }
+    });
+
+    const unsubMem = memoryManager.subscribe(() => {
+      const all = memoryManager.getAllMemories();
+      setMemories(
+        all.map((item) => ({
+          id: item.id,
+          text: item.content || item.value || `${item.key}: ${item.value}`,
+          category: (item.category as MemoryCategory) || 'user_preference',
+          createdAt: new Date(item.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+        }))
+      );
+    });
+
+    return () => unsubMem();
+  }, []);
 
   // Setup Proactive Engine spontaneous initiator
   useEffect(() => {
@@ -218,6 +287,13 @@ export default function App() {
       },
       onSpeechComplete: (finalText, analysis) => {
         setUserLiveTranscript(finalText);
+
+        // Language detection & authoritative state synchronization
+        const detected = detectSpokenLanguage(finalText, stateManager.getLanguage());
+        console.log('[LANGUAGE] detected:', detected.detectedLang, `(${detected.reason})`);
+        stateManager.setActiveLanguage(detected.detectedLang);
+        console.log('[LANGUAGE] active:', stateManager.getLanguage());
+
         // Handle natural spontaneous short reactions
         if (analysis?.decisionMode === 'SHORT_REACTION' && analysis.reactionText) {
           const userMsg: ChatMessage = {
@@ -428,10 +504,12 @@ export default function App() {
 
       // 3. Try Gemini TTS server endpoint
       if (voiceSettings.provider === 'gemini_tts' || voiceSettings.provider === 'local_tts') {
+        const activeLang = stateManager.getLanguage() || 'gu-IN';
+        console.log('[LANGUAGE] active (speakResponse):', activeLang);
         const res = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: msg.content }),
+          body: JSON.stringify({ text: msg.content, language: activeLang }),
         });
 
         if (res.ok) {
@@ -464,6 +542,60 @@ export default function App() {
         onFinishSpeaking();
       },
       adjustedParams
+    );
+  };
+
+  // Proactive Voice Greeting on Mic Start
+  const handleStartVoiceSession = async () => {
+    // 0. Audio Cleanup: Stop any lingering audio or speech before starting
+    liveSession.stopAllAudio();
+    liveSession.setGreetingActive(true);
+
+    // 1. Establish connection to Gemini Live session link
+    const connected = await liveSession.connect();
+    if (!connected) {
+      liveSession.setGreetingActive(false);
+      return;
+    }
+
+    // 2. Select authentic JARVIS voice greeting based on active language
+    const lang = stateManager.getLanguage();
+    const isGujarati = lang === 'gu-IN';
+    const greetingText = isGujarati
+      ? "હું મેરી છું. સિસ્ટમ ઓનલાઇન છે અને હું સાંભળી રહી છું. આજે આપણો શું પ્લાન છે?"
+      : "I'm MERY. Systems online and listening. What's on our agenda today?";
+
+    // 3. Update hologram, subtitle, and live transcripts in real-time
+    stateManager.setState('speaking');
+    setHologramState('speaking');
+    setMerySpokenSubtitle(greetingText);
+    liveSession.dispatchTranscript(greetingText, 'model');
+
+    const greetingMsg: ChatMessage = {
+      id: `msg_greeting_${Date.now()}`,
+      role: 'model',
+      content: greetingText,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages((prev) => [...prev, greetingMsg]);
+
+    // 4. Vocalize introduction with warm, confident JARVIS demeanor
+    voiceService.speakBrowserVoice(
+      greetingText,
+      () => {
+        // Hologram & state react to speaking
+        stateManager.setState('speaking');
+        setHologramState('speaking');
+      },
+      () => {
+        // Finished greeting speech
+        liveSession.setGreetingActive(false);
+        // Smoothly transition to listening with acoustic chime
+        voiceService.playAcousticChime('listen_start');
+        stateManager.setState('listening');
+        setHologramState('listening');
+      },
+      { pitch: 1.04, rate: 0.96 }
     );
   };
 
@@ -533,9 +665,54 @@ export default function App() {
         }
         break;
       case 'SAVE_MEMORY':
-        if (payload?.text) {
-          memoryService.save({ text: payload.text, category: payload.category });
-          handleAddMemory(payload.text, payload.category as MemoryCategory);
+        if (payload?.text || payload?.value) {
+          const text = payload.text || `${payload.key}: ${payload.value}`;
+          const cat = (payload.category as MemoryCategory) || 'user_preference';
+          memoryService.save({ text, category: cat });
+          handleAddMemory(text, cat);
+        }
+        break;
+      case 'GET_WEATHER':
+        locationService.getWeather(payload?.city).then((w) => {
+          stateManager.notify(`Weather: ${w.locationName} ${w.temperature}°C, ${w.condition}`, 'success');
+        });
+        break;
+      case 'GET_LOCATION':
+        locationService
+          .getLocationWithFallback()
+          .then((geo) => {
+            stateManager.notify(`Location: ${geo.displayName}`, 'success');
+          })
+          .catch((err) => {
+            console.warn('[App] Location notice:', err);
+          });
+        break;
+      case 'GET_NEARBY_PLACES':
+        if (payload?.query) {
+          locationService.searchNearby(payload.query).then((places) => {
+            stateManager.notify(`Found ${places.length} places for "${payload.query}"`, 'info');
+          });
+        }
+        break;
+      case 'ACTIVATE_CAMERA':
+        cameraService.startCamera(payload?.facing || 'environment');
+        break;
+      case 'CAPTURE_VISION':
+        cameraService.captureSingleFrame();
+        stateManager.notify('Visual snapshot captured', 'info');
+        break;
+      case 'SEND_NOTIFICATION':
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(payload?.title || 'MERY', { body: payload?.body || '' });
+        } else {
+          stateManager.notify(`${payload?.title || 'MERY'}: ${payload?.body || ''}`, 'info');
+        }
+        break;
+      case 'FORGET_MEMORY':
+        if (payload?.keyOrId) {
+          const all = memoryManager.getAllMemories();
+          const m = all.find((item) => item.id === payload.keyOrId || item.key.toLowerCase() === payload.keyOrId.toLowerCase());
+          if (m) memoryManager.removeMemory(m.id);
         }
         break;
       default:
@@ -548,6 +725,14 @@ export default function App() {
     if (!text.trim() || isThinkingRef.current) return;
 
     setUserLiveTranscript('');
+
+    // Detect language and synchronize active language
+    const detected = detectSpokenLanguage(text, stateManager.getLanguage());
+    stateManager.setActiveLanguage(detected.detectedLang);
+    console.log('[LANGUAGE] detected:', detected.detectedLang);
+    console.log('[LANGUAGE] active:', stateManager.getLanguage());
+    console.log('[LANGUAGE] AI:', stateManager.getLanguage());
+
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       role: 'user',
@@ -575,6 +760,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: newHistory.map((m) => ({ role: m.role, content: m.content })),
+          language: stateManager.getLanguage(),
           userNote: memories.length > 0 ? memories.map((m) => m.text).join('; ') : undefined,
           emotionalContext: {
             primary: emoAnalysis.userEmotion.primary,
@@ -585,6 +771,9 @@ export default function App() {
             topicContext: emoAnalysis.userEmotion.topicContext,
             strategy: emoAnalysis.strategy,
           },
+          screenSnapshot: screenShareService.isSharing()
+            ? (screenShareService.getLatestSnapshot() || screenShareService.captureSingleFrame() || undefined)
+            : undefined,
         }),
       });
 
@@ -698,29 +887,19 @@ export default function App() {
   };
 
   const handleAddMemory = (text: string, category: MemoryCategory = 'user_preference') => {
-    const newMem: MeryMemory = {
-      id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      text,
-      category,
-      createdAt: 'Just now',
-    };
-    setMemories((prev) => [newMem, ...prev]);
+    const key = `item_${Date.now().toString(36)}`;
+    memoryManager.addMemory(category, key, text, text, 'preference', 0.90);
   };
 
   const handleDeleteMemory = (id: string) => {
-    setMemories((prev) => prev.filter((m) => m.id !== id));
+    memoryManager.removeMemory(id);
   };
 
   return (
-    <div className="min-h-screen bg-[#07060D] text-[#F3EFFA] flex flex-col selection:bg-[#9D7BFF]/30 selection:text-white relative overflow-x-hidden">
-      {/* Aurora Rose Ambient Background Glows */}
-      <div className="fixed top-0 left-1/4 w-96 h-96 rounded-full bg-[#9D7BFF]/12 blur-[120px] pointer-events-none" />
-      <div className="fixed top-1/3 right-10 w-96 h-96 rounded-full bg-[#E7B7A5]/12 blur-[130px] pointer-events-none" />
-      <div className="fixed bottom-10 left-10 w-80 h-80 rounded-full bg-[#C6A0FF]/10 blur-[140px] pointer-events-none" />
-
+    <div className="h-[100dvh] max-h-[100dvh] w-full bg-[#080809] text-white flex flex-col selection:bg-[#00ff66] selection:text-[#080809] relative overflow-hidden font-sans">
       {/* Toast Notification HUD */}
       {toast && (
-        <div className="fixed top-16 right-4 z-50 px-4 py-2 rounded-2xl bg-slate-900/90 border border-purple-500/40 text-xs text-white shadow-2xl backdrop-blur-xl flex items-center gap-2 animate-fade-in">
+        <div className="fixed top-14 right-6 z-50 px-4 py-2 bg-[#080809]/90 border border-[#00ff66]/40 text-xs text-white shadow-2xl backdrop-blur-xl flex items-center gap-2 animate-fade-in font-telemetry">
           <span
             className={`w-2 h-2 rounded-full ${
               toast.type === 'error'
@@ -728,110 +907,82 @@ export default function App() {
                 : toast.type === 'warning'
                 ? 'bg-amber-400'
                 : toast.type === 'success'
-                ? 'bg-emerald-400'
-                : 'bg-cyan-400'
+                ? 'bg-[#00ff66]'
+                : 'bg-[#00ff66]'
             }`}
           />
           <span>{toast.message}</span>
         </div>
       )}
 
-      {/* M4 Status Bar */}
-      <MeryStatusBar
-        resonance={resonance}
-        emotion={currentEmotion}
-        voiceEnabled={!voiceMuted}
-        onToggleVoice={() => setVoiceMuted(!voiceMuted)}
-        onOpenMemory={() => setIsMemoryOpen(true)}
-        onOpenIdentity={() => setIsIdentityOpen(true)}
-        onOpenSystemControl={() => setIsSystemControlOpen(true)}
-        onOpenActivity={() => setIsActivityOpen(true)}
-        onOpenEmotion={() => setIsEmotionOpen(true)}
-        onOpenApiSettings={() => setIsApiSettingsOpen(true)}
-      />
-
-      {/* View Mode Selector */}
-      <div className="w-full flex justify-center py-2 px-4 z-20">
-        <div className="inline-flex items-center p-1 rounded-2xl bg-slate-900/80 border border-white/10 backdrop-blur-lg shadow-lg">
-          <button
-            id="view_live_orb_btn"
-            onClick={() => setActiveView('live_orb')}
-            className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-              activeView === 'live_orb'
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Live Voice Orb (Gemini Live)
-          </button>
-          <button
-            id="view_hologram_btn"
-            onClick={() => setActiveView('hologram')}
-            className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-              activeView === 'hologram'
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Holographic Console
-          </button>
-        </div>
+      {/* Main Experience Stage (Variation 11: Mobile Neural Interface) */}
+      <div className="flex-1 min-h-0 w-full flex flex-col relative z-10">
+        <VoiceOrbStage
+          onOpenSettings={() => setIsApiSettingsOpen(true)}
+          onOpenTools={() => setIsToolNexusOpen(true)}
+          onOpenTranscript={() => setIsTranscriptOpen(true)}
+          onOpenAgentDev={() => setIsAgentDevOpen(true)}
+          onOpenMemory={() => setIsMemoryOpen(true)}
+          onOpenSystemControl={() => setIsSystemControlOpen(true)}
+          onOpenActivity={() => setIsActivityOpen(true)}
+          onOpenEmotion={() => setIsEmotionOpen(true)}
+          voiceEnabled={!voiceMuted}
+          onToggleVoice={() => setVoiceMuted(!voiceMuted)}
+          onStartVoiceSession={handleStartVoiceSession}
+          onSendMessage={handleSendMessage}
+          isThinking={isThinking}
+          messageCount={messages.length}
+          visualMode={visualMode}
+          onToggleVisualMode={() => setVisualMode((prev) => (prev === 'avatar' ? 'hologram' : 'avatar'))}
+          showChatText={showChatText}
+          onToggleChatText={() =>
+            setShowChatText((prev) => {
+              const next = !prev;
+              try {
+                localStorage.setItem('mery_show_chat_text', String(next));
+              } catch {}
+              return next;
+            })
+          }
+          messages={messages}
+          onPlayVoice={speakResponse}
+          playingMessageId={playingMessageId}
+        >
+          {visualMode === 'avatar' ? (
+            <AnimeAvatar3D
+              state={hologramState}
+              emotion={currentEmotion}
+              accentColor="#00ff66"
+              onStartSession={handleStartVoiceSession}
+              onClick={async () => {
+                const st = stateManager.getState();
+                if (st === 'disconnected') {
+                  await handleStartVoiceSession();
+                } else if (st === 'speaking') {
+                  liveSession.handleUserInterrupt();
+                } else {
+                  liveSession.disconnect();
+                }
+              }}
+            />
+          ) : (
+            <JarvisHologram3D
+              state={hologramState}
+              emotion={currentEmotion}
+              onClick={async () => {
+                const st = stateManager.getState();
+                if (st === 'disconnected') {
+                  await handleStartVoiceSession();
+                } else if (st === 'speaking') {
+                  liveSession.handleUserInterrupt();
+                } else {
+                  liveSession.disconnect();
+                }
+              }}
+            />
+          )}
+        </VoiceOrbStage>
       </div>
-
-      {/* Primary Experience Stage */}
-      {activeView === 'live_orb' ? (
-        <main className="flex-1 flex flex-col justify-center max-w-4xl w-full mx-auto relative z-10 px-2 sm:px-4">
-          <VoiceOrbStage
-            onOpenSettings={() => setIsApiSettingsOpen(true)}
-            onOpenTools={() => setIsToolNexusOpen(true)}
-          />
-        </main>
-      ) : (
-        <main className="flex-1 flex flex-col justify-between max-w-4xl w-full mx-auto relative z-10 px-2 sm:px-4">
-          {/* Holographic Presence Core */}
-          <section aria-label="MERY Holographic Presence" className="pt-2">
-            <AuroraHologram
-              state={hologramState}
-              emotion={currentEmotion}
-              onClickPrompt={handleTriggerProactive}
-              isAudioPlaying={Boolean(playingMessageId)}
-            />
-          </section>
-
-          {/* Live Spoken Subtitles & Feedback Stage */}
-          <section aria-label="Spoken Subtitles">
-            <VoiceSubtitleStage
-              state={hologramState}
-              emotion={currentEmotion}
-              userLiveTranscript={userLiveTranscript}
-              merySpokenSubtitle={merySpokenSubtitle}
-              onOpenHistory={() => setIsTranscriptOpen(true)}
-              messageCount={messages.length}
-              fullDuplexActive={fullDuplexActive}
-              wakeWordMode={wakeWordMode}
-            />
-          </section>
-
-          {/* Primary Voice Action Nexus (Centerpiece Control Hub) */}
-          <section aria-label="Voice Interaction Hub">
-            <VoiceActionNexus
-              state={hologramState}
-              emotion={currentEmotion}
-              fullDuplexActive={fullDuplexActive}
-              onToggleFullDuplex={handleToggleFullDuplex}
-              wakeWordMode={wakeWordMode}
-              onToggleWakeWordMode={handleToggleWakeWordMode}
-              isWokenUp={isWokenUp}
-              onInterruptSpeech={handleInterruptSpeech}
-              onTriggerSpokenPrompt={(prompt) => handleSendMessage(prompt)}
-              onOpenTextInput={() => setIsTranscriptOpen(true)}
-              voiceMuted={voiceMuted}
-              onToggleVoiceMuted={() => setVoiceMuted(!voiceMuted)}
-              onStartFullDuplex={startFullDuplexEngine}
-            />
-          </section>
-        </main>
-      )}
 
       {/* Supporting Conversation History & Quiet Mode Drawer */}
       <TranscriptDrawer
@@ -909,7 +1060,22 @@ export default function App() {
         onClose={() => setMissingKeyProtocol(null)}
         onOpenApiSettings={() => setIsApiSettingsOpen(true)}
       />
+
+      {/* Screen Sharing Permission & Allow Guide Modal */}
+      <ScreenAllowModal
+        isOpen={isScreenAllowOpen}
+        onClose={() => {
+          setIsScreenAllowOpen(false);
+          setScreenAllowReason(null);
+        }}
+        reason={screenAllowReason}
+      />
+
+      {/* All-Type Agent Development Studio Modal */}
+      <AgentDevStudioModal
+        isOpen={isAgentDevOpen}
+        onClose={() => setIsAgentDevOpen(false)}
+      />
     </div>
   );
 }
-

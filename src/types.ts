@@ -4,6 +4,17 @@ export type AssistantState =
   | 'listening'
   | 'speaking';
 
+// MERY AI Status System
+export type AIStatus =
+  | 'IDLE'
+  | 'LISTENING'
+  | 'THINKING'
+  | 'SEARCHING'
+  | 'ANALYZING'
+  | 'SPEAKING'
+  | 'COMPLETED'
+  | 'ERROR';
+
 // Human Conversation State Machine states
 export type ConversationState =
   | 'IDLE'
@@ -320,6 +331,17 @@ export interface VoiceSettings {
   useStreaming: boolean;
 }
 
+export type ScreenResolution = '480p' | '720p' | '1080p';
+
+export interface ScreenShareSettings {
+  enabled: boolean;
+  resolution: ScreenResolution;
+  frameRate: number; // 0.5, 1, or 2 fps
+  jpegQuality: number; // 0.5 to 0.9
+  autoShareOnLiveStart: boolean;
+  sendAudioWithScreen: boolean;
+}
+
 export interface ProactiveConfig {
   enabled: boolean;
   frequency: 'relaxed' | 'balanced' | 'frequent'; // 30m, 15m, 5m
@@ -363,5 +385,87 @@ export interface WebSearchResult {
     snippet?: string;
   }>;
   searchTimeMs: number;
+}
+
+// ==========================================
+// ALL-TYPE AGENT DEVELOPMENT FRAMEWORK TYPES
+// ==========================================
+
+export type AgentArchetype =
+  | 'REACTIVE_CONVERSATIONAL' // Fast direct reflex, empathetic voice companion
+  | 'REACT_REASONING'        // Thought -> Action -> Observation -> Reflection loop
+  | 'AUTONOMOUS_GOAL_DIRECTED' // Task decomposition, step planning & autonomous goal execution
+  | 'TOOL_CALLING_SYSTEM'     // Browser actions, OS controls, weather, search tools
+  | 'MULTI_AGENT_SWARM'       // Lead orchestrator, researcher, coder, critic, synthesizer
+  | 'MULTIMODAL_VISION'       // Screen analysis, OCR, visual UI grounding
+  | 'MEMORY_REFLECTION'       // Episodic recall, semantic profile evolution
+  | 'CODE_ENGINEERING';       // Code generation, debugging, sandbox simulation
+
+export interface AgentBlueprint {
+  id: string;
+  name: string;
+  archetype: AgentArchetype;
+  tagline: string;
+  description: string;
+  systemInstruction: string;
+  model: string;
+  temperature: number;
+  maxSteps: number;
+  allowedTools: string[];
+  memoryRecall: boolean;
+  visionEnabled: boolean;
+  isCustom?: boolean;
+  createdAt?: string;
+}
+
+export type AgentStepType =
+  | 'thought'
+  | 'action'
+  | 'observation'
+  | 'subagent_dispatch'
+  | 'subagent_response'
+  | 'reflection'
+  | 'code_artifact'
+  | 'final_output';
+
+export interface AgentExecutionStep {
+  stepNumber: number;
+  type: AgentStepType;
+  title: string;
+  content: string;
+  agentRole?: string;
+  toolCall?: {
+    name: string;
+    args: Record<string, any>;
+    result?: any;
+  };
+  durationMs?: number;
+  timestamp: string;
+}
+
+export interface AgentExecutionTrace {
+  id: string;
+  agentId: string;
+  archetype: AgentArchetype;
+  goal: string;
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  steps: AgentExecutionStep[];
+  finalOutput?: string;
+  error?: string;
+  metrics: {
+    durationMs: number;
+    stepsCount: number;
+    toolsInvoked: number;
+  };
+  createdAt: string;
+}
+
+export interface SwarmSubAgent {
+  id: string;
+  role: string;
+  name: string;
+  focus: string;
+  status: 'standby' | 'working' | 'completed';
+  output?: string;
 }
 

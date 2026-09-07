@@ -34,11 +34,20 @@ class VoiceService {
   private currentLanguage: string = (typeof window !== 'undefined' && localStorage.getItem('mery_spoken_language')) || 'gu-IN';
 
   public setLanguage(lang: string) {
-    this.currentLanguage = lang;
+    let normalized = lang;
+    if (lang.startsWith('gu')) normalized = 'gu-IN';
+    else if (lang.startsWith('hi')) normalized = 'hi-IN';
+    else if (lang.startsWith('en')) normalized = 'en-IN';
+    else if (lang === 'auto') normalized = 'gu-IN';
+
+    this.currentLanguage = normalized;
+    console.log('[LANGUAGE] active (voiceService):', normalized);
     if (this.recognition) {
       try {
-        this.recognition.lang = lang === 'auto' ? 'gu-IN' : lang;
-      } catch {}
+        this.recognition.lang = normalized;
+      } catch (e) {
+        console.warn('Could not update recognition language immediately:', e);
+      }
     }
   }
 
@@ -271,31 +280,78 @@ class VoiceService {
       // Keep utterance reference alive on instance so Chromium GC doesn't abort speech prematurely
       this.currentUtterance = utterance;
 
-      // Pick best available voice for language (Gujarati or English)
-      const voices = window.speechSynthesis.getVoices();
-      const isGujarati = /[\u0A80-\u0AFF]/.test(cleanText) || this.currentLanguage === 'gu-IN';
+      // 1. Determine requested language locale
+      let requestedLang = this.currentLanguage || 'gu-IN';
+      if (/[\u0A80-\u0AFF]/.test(cleanText)) {
+        requestedLang = 'gu-IN';
+      } else if (/[\u0900-\u097F]/.test(cleanText)) {
+        requestedLang = 'hi-IN';
+      }
 
-      if (isGujarati) {
+      console.log('[VOICE] requested:', requestedLang);
+
+      const voices = window.speechSynthesis.getVoices();
+      let selectedVoice: SpeechSynthesisVoice | null = null;
+
+      if (requestedLang === 'gu-IN' || requestedLang.startsWith('gu')) {
         utterance.lang = 'gu-IN';
-        const gujaratiVoice =
+        // Strict Gujarati matching: only voices whose language starts with 'gu' or name has 'gujarat'
+        selectedVoice =
           voices.find(
             (v) =>
-              v.lang.startsWith('gu') ||
+              v.lang.toLowerCase().startsWith('gu') ||
               v.lang.toLowerCase().includes('gujarat') ||
               v.name.toLowerCase().includes('gujarat')
-          ) ||
+          ) || null;
+
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
+          utterance.lang = selectedVoice.lang || 'gu-IN';
+          console.log('[VOICE] selected:', selectedVoice.name);
+          console.log('[VOICE] locale:', selectedVoice.lang);
+        } else {
+          // STRICT: Do NOT assign any English, Hindi, or other voice!
+          utterance.voice = null;
+          utterance.lang = 'gu-IN';
+          console.warn('[VOICE] Warning: No native Gujarati voice found in browser voices list. Using browser engine gu-IN locale synthesis without foreign voice fallback.');
+          console.log('[VOICE] selected: none (browser native gu-IN)');
+          console.log('[VOICE] locale: gu-IN');
+        }
+      } else if (requestedLang === 'hi-IN' || requestedLang.startsWith('hi')) {
+        utterance.lang = 'hi-IN';
+        // Strict Hindi matching: only voices whose language starts with 'hi' or name has 'hindi'
+        selectedVoice =
           voices.find(
             (v) =>
-              v.lang.startsWith('hi') ||
-              v.lang.startsWith('en-IN') ||
-              v.name.toLowerCase().includes('india')
-          );
-        if (gujaratiVoice) {
-          utterance.voice = gujaratiVoice;
+              v.lang.toLowerCase().startsWith('hi') ||
+              v.lang.toLowerCase().includes('hindi') ||
+              v.name.toLowerCase().includes('hindi')
+          ) || null;
+
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
+          utterance.lang = selectedVoice.lang || 'hi-IN';
+          console.log('[VOICE] selected:', selectedVoice.name);
+          console.log('[VOICE] locale:', selectedVoice.lang);
+        } else {
+          // STRICT: Do NOT assign any English or other voice!
+          utterance.voice = null;
+          utterance.lang = 'hi-IN';
+          console.warn('[VOICE] Warning: No native Hindi voice found in browser voices list. Using browser engine hi-IN locale synthesis without foreign voice fallback.');
+          console.log('[VOICE] selected: none (browser native hi-IN)');
+          console.log('[VOICE] locale: hi-IN');
         }
       } else {
-        utterance.lang = 'en-US';
-        const femaleVoice =
+        // English
+        const enLocale = requestedLang.startsWith('en') ? requestedLang : 'en-IN';
+        utterance.lang = enLocale;
+        // Prefer en-IN Indian English or high quality English voice, but STRICTLY English (lang starts with 'en')
+        selectedVoice =
+          voices.find(
+            (v) =>
+              v.lang.toLowerCase().startsWith('en-in') ||
+              (v.lang.toLowerCase().startsWith('en') && v.name.toLowerCase().includes('india'))
+          ) ||
           voices.find(
             (v) =>
               (v.name.includes('Natural') ||
@@ -305,11 +361,21 @@ class VoiceService {
                 v.name.includes('Karen') ||
                 v.name.includes('Zira') ||
                 v.name.includes('Female')) &&
-              v.lang.startsWith('en')
-          ) || voices.find((v) => v.lang.startsWith('en'));
+              v.lang.toLowerCase().startsWith('en')
+          ) ||
+          voices.find((v) => v.lang.toLowerCase().startsWith('en')) ||
+          null;
 
-        if (femaleVoice) {
-          utterance.voice = femaleVoice;
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
+          utterance.lang = selectedVoice.lang || enLocale;
+          console.log('[VOICE] selected:', selectedVoice.name);
+          console.log('[VOICE] locale:', selectedVoice.lang);
+        } else {
+          utterance.voice = null;
+          utterance.lang = enLocale;
+          console.log('[VOICE] selected: none (browser default en-IN)');
+          console.log('[VOICE] locale:', enLocale);
         }
       }
 
@@ -383,7 +449,9 @@ class VoiceService {
 
     if (this.currentSource) {
       try {
+        this.currentSource.onended = null;
         this.currentSource.stop();
+        this.currentSource.disconnect();
       } catch {}
       this.currentSource = null;
     }
@@ -396,10 +464,26 @@ class VoiceService {
         this.currentUtterance = null;
       }
       try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
         window.speechSynthesis.cancel();
       } catch {}
     }
     this.isPlaying = false;
+  }
+
+  // Complete cleanup: stops recognition, stops audio, and closes audioCtx
+  public resetAllAudio(): void {
+    this.stopFullDuplex();
+    this.stopAudio();
+    if (this.audioCtx && this.audioCtx.state !== 'closed') {
+      try {
+        this.audioCtx.close();
+      } catch {}
+      this.audioCtx = null;
+      this.analyser = null;
+    }
   }
 
   public isCurrentlyPlaying(): boolean {

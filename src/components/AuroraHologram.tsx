@@ -33,56 +33,56 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
     return () => clearInterval(interval);
   }, [state, isAudioPlaying]);
 
-  // Color mapping based on emotional resonance
+  // Color mapping based on emotional resonance (Black & Blue Theme)
   const getAuraColors = () => {
     switch (emotion) {
       case 'curious':
         return {
-          core: '#C6A0FF', // Neon lavender
-          glow: 'rgba(198, 160, 255, 0.45)',
-          ring: '#9D7BFF',
-          accent: '#E7B7A5',
+          core: '#00A3FF', // Electric cyan blue
+          glow: 'rgba(0, 163, 255, 0.45)',
+          ring: '#0066FF',
+          accent: '#38BDF8',
           label: 'Curious & Inquisitive',
         };
       case 'playful':
         return {
-          core: '#E7B7A5', // Rose gold
-          glow: 'rgba(231, 183, 165, 0.5)',
-          ring: '#C6A0FF',
-          accent: '#FFB2D9',
+          core: '#38BDF8', // Sky blue
+          glow: 'rgba(56, 189, 248, 0.5)',
+          ring: '#00A3FF',
+          accent: '#60A5FA',
           label: 'Playful & Lighthearted',
         };
       case 'thoughtful':
         return {
-          core: '#9D7BFF', // Soft violet
-          glow: 'rgba(157, 123, 255, 0.5)',
-          ring: '#7B5FE0',
-          accent: '#C6A0FF',
+          core: '#2563EB', // Royal blue
+          glow: 'rgba(37, 99, 235, 0.5)',
+          ring: '#1D4ED8',
+          accent: '#00A3FF',
           label: 'Reflective & Attentive',
         };
       case 'supportive':
         return {
-          core: '#E7B7A5',
-          glow: 'rgba(231, 183, 165, 0.4)',
-          ring: '#9D7BFF',
-          accent: '#F3D5CA',
+          core: '#00A3FF',
+          glow: 'rgba(0, 163, 255, 0.4)',
+          ring: '#2563EB',
+          accent: '#93C5FD',
           label: 'Warm & Reassuring',
         };
       case 'inspired':
         return {
-          core: '#C6A0FF',
-          glow: 'rgba(198, 160, 255, 0.6)',
-          ring: '#E7B7A5',
-          accent: '#9D7BFF',
+          core: '#60A5FA',
+          glow: 'rgba(96, 165, 250, 0.6)',
+          ring: '#00A3FF',
+          accent: '#38BDF8',
           label: 'Vibrant & Connected',
         };
       case 'warm':
       default:
         return {
-          core: '#9D7BFF',
-          glow: 'rgba(157, 123, 255, 0.4)',
-          ring: '#E7B7A5',
-          accent: '#C6A0FF',
+          core: '#00A3FF',
+          glow: 'rgba(0, 163, 255, 0.4)',
+          ring: '#2563EB',
+          accent: '#38BDF8',
           label: 'Warm & Present',
         };
     }
@@ -101,7 +101,7 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
       <div
         className="absolute w-72 h-72 rounded-full pointer-events-none transition-all duration-1000 ease-out"
         style={{
-          background: `radial-gradient(circle, ${colors.glow} 0%, rgba(231, 183, 165, 0.15) 45%, transparent 70%)`,
+          background: `radial-gradient(circle, ${colors.glow} 0%, rgba(0, 163, 255, 0.15) 45%, transparent 70%)`,
           filter: 'blur(35px)',
           transform: state === 'speaking' ? 'scale(1.25)' : state === 'listening' ? 'scale(1.15)' : 'scale(1)',
         }}
@@ -112,28 +112,28 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
         {/* Outer orbital dotted ring */}
         <div
           className="absolute inset-0 rounded-full border border-dashed animate-orbit-slow"
-          style={{ borderColor: 'rgba(231, 183, 165, 0.28)' }}
+          style={{ borderColor: 'rgba(0, 163, 255, 0.28)' }}
         />
 
         {/* Secondary counter-rotating telemetry ring */}
         <div
           className="absolute inset-2 rounded-full border animate-orbit-reverse"
           style={{
-            borderColor: 'rgba(198, 160, 255, 0.22)',
+            borderColor: 'rgba(56, 189, 248, 0.22)',
             borderTopColor: colors.core,
-            borderBottomColor: 'rgba(231, 183, 165, 0.5)',
+            borderBottomColor: 'rgba(0, 163, 255, 0.5)',
           }}
         />
 
         {/* Inner thin precision ticks ring */}
         <div
           className="absolute inset-5 rounded-full border border-dotted"
-          style={{ borderColor: 'rgba(157, 123, 255, 0.35)' }}
+          style={{ borderColor: 'rgba(0, 102, 255, 0.35)' }}
         />
 
         {/* HUD Crosshair markers (JARVIS inspiration) */}
-        <div className="absolute w-full h-[1px] bg-gradient-to-r from-transparent via-[#E7B7A5]/25 to-transparent pointer-events-none" />
-        <div className="absolute h-full w-[1px] bg-gradient-to-b from-transparent via-[#9D7BFF]/25 to-transparent pointer-events-none" />
+        <div className="absolute w-full h-[1px] bg-gradient-to-r from-transparent via-[#00A3FF]/25 to-transparent pointer-events-none" />
+        <div className="absolute h-full w-[1px] bg-gradient-to-b from-transparent via-[#38BDF8]/25 to-transparent pointer-events-none" />
 
         {/* Dynamic Center Holographic Neural Core */}
         <motion.div
@@ -149,9 +149,9 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
           }}
           className="relative w-28 h-28 rounded-full flex items-center justify-center shadow-2xl transition-all duration-700"
           style={{
-            background: `radial-gradient(circle at 35% 35%, #FFFFFF 0%, ${colors.core} 35%, #24143D 85%, #0A0612 100%)`,
+            background: `radial-gradient(circle at 35% 35%, #FFFFFF 0%, ${colors.core} 35%, #051937 85%, #020204 100%)`,
             boxShadow: `0 0 35px ${colors.glow}, inset 0 0 20px rgba(255, 255, 255, 0.4), inset 0 0 35px ${colors.accent}`,
-            border: `1.5px solid rgba(231, 183, 165, 0.4)`,
+            border: `1.5px solid rgba(0, 163, 255, 0.4)`,
           }}
         >
           {/* Inner pulsating core sheen */}
@@ -175,11 +175,11 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
           {/* Core Sparkle / Icon indicator */}
           <div className="absolute inset-0 flex items-center justify-center text-white/90">
             {state === 'thinking' ? (
-              <Activity className="w-6 h-6 animate-spin text-[#E7B7A5]" />
+              <Activity className="w-6 h-6 animate-spin text-[#38BDF8]" />
             ) : state === 'listening' ? (
-              <Radio className="w-6 h-6 animate-pulse text-[#C6A0FF]" />
+              <Radio className="w-6 h-6 animate-pulse text-[#00A3FF]" />
             ) : state === 'speaking' || isAudioPlaying ? (
-              <Volume2 className="w-6 h-6 animate-pulse text-[#E7B7A5]" />
+              <Volume2 className="w-6 h-6 animate-pulse text-[#38BDF8]" />
             ) : (
               <Sparkles className="w-6 h-6 text-white/80 group-hover:scale-110 transition-transform" />
             )}
@@ -195,8 +195,8 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
           <div
             className="w-2.5 h-2.5 rounded-full absolute top-1 left-1/2 -translate-x-1/2 shadow-lg"
             style={{
-              backgroundColor: '#E7B7A5',
-              boxShadow: '0 0 10px #E7B7A5',
+              backgroundColor: '#00A3FF',
+              boxShadow: '0 0 10px #00A3FF',
             }}
           />
         </motion.div>
@@ -208,15 +208,15 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
           <div
             className="w-2 h-2 rounded-full absolute bottom-3 right-8 shadow-lg"
             style={{
-              backgroundColor: '#C6A0FF',
-              boxShadow: '0 0 12px #C6A0FF',
+              backgroundColor: '#38BDF8',
+              boxShadow: '0 0 12px #38BDF8',
             }}
           />
         </motion.div>
       </div>
 
-      {/* Real-time Acoustic Waveform Bars (AURORA ROSE Equalizer) */}
-      <div className="flex items-center gap-1.5 mt-4 h-9 px-4 py-1.5 rounded-full bg-[#120E1E]/60 border border-[#E7B7A5]/20 backdrop-blur-md">
+      {/* Real-time Acoustic Waveform Bars (Blue Equalizer) */}
+      <div className="flex items-center gap-1.5 mt-4 h-9 px-4 py-1.5 rounded-full bg-[#081426]/70 border border-[#00A3FF]/20 backdrop-blur-md">
         {waveHeights.map((h, i) => (
           <motion.div
             key={i}
@@ -226,8 +226,8 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
             style={{
               background:
                 i % 2 === 0
-                  ? 'linear-gradient(to top, #9D7BFF, #C6A0FF)'
-                  : 'linear-gradient(to top, #E7B7A5, #F5D5C8)',
+                  ? 'linear-gradient(to top, #0055FF, #00A3FF)'
+                  : 'linear-gradient(to top, #00A3FF, #38BDF8)',
             }}
           />
         ))}
@@ -235,16 +235,16 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
 
       {/* Telemetry & Emotional Resonance Tag */}
       <div className="mt-3 flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-[#9D7BFF] animate-ping" />
-        <span className="font-telemetry text-xs tracking-wider text-[#E7B7A5] uppercase">
+        <span className="w-2 h-2 rounded-full bg-[#00A3FF] animate-ping" />
+        <span className="font-telemetry text-xs tracking-wider text-[#38BDF8] uppercase">
           MERY // {colors.label}
         </span>
-        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#9D7BFF]/20 text-[#C6A0FF] border border-[#9D7BFF]/30 font-telemetry">
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#00A3FF]/20 text-[#38BDF8] border border-[#00A3FF]/30 font-telemetry">
           {state.toUpperCase()}
         </span>
       </div>
 
-      <p className="text-[11px] text-[#C6A0FF]/60 mt-1 font-light tracking-wide text-center">
+      <p className="text-[11px] text-[#38BDF8]/60 mt-1 font-light tracking-wide text-center">
         Tap the core to check in with MERY
       </p>
     </div>

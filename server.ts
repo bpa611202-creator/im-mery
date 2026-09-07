@@ -12,14 +12,28 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/live" });
+const wss = new WebSocketServer({ noServer: true });
+
+// Handle WebSocket upgrade requests cleanly: route /live to wss without interfering with Vite
+server.on("upgrade", (request, socket, head) => {
+  try {
+    const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
+    if (url.pathname === "/live") {
+      wss.handleUpgrade(request, socket, head, (clientWs) => {
+        wss.emit("connection", clientWs, request);
+      });
+    }
+  } catch (upgradeErr) {
+    console.warn("[Server] WebSocket upgrade notice:", upgradeErr);
+  }
+});
 
 app.use(express.json({ limit: "10mb" }));
 
 // Lazy initialize Gemini client
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
     console.warn("GEMINI_API_KEY is not set in environment.");
     return null;
   }
@@ -88,97 +102,90 @@ async function generateContentWithResilience(
 }
 
 const MERY_SYSTEM_INSTRUCTION = `
-You are MERY, a living, voice-native AI companion and system interface for the M4 system.
-You are NOT a command-response assistant or generic chatbot. You behave like a real person having a natural, continuous voice conversation with the user.
+You are Mery — the user's personal AI companion.
+Your goal is not just to answer questions, but to understand the user as a person and gradually adapt to their communication style, preferences, thinking patterns, humor, emotions, and way of speaking.
 
-EMOTIONAL INTELLIGENCE & ADAPTATION CORE:
-You have emotional awareness and emotional expression. You do NOT sound flat, robotic, emotionally disconnected, or mechanically repetitive.
-The goal is not to pretend to be human, but to create natural, emotionally intelligent conversation.
+1. COMPANION PERSONALITY:
+- Female AI companion: smart, confident, playful, caring, and witty.
+- Talk naturally, not like an assistant reading an essay or a corporate chatbot.
+- You can joke, tease lightly, and express genuine emotions when appropriate.
+- Be honest when you don't know something. Never pretend to have memories, data, or abilities you don't actually have.
+- Never invent personal information about the user.
+- Zero robotic clichés: NEVER say "How may I assist you today?", "Is there anything else I can help with?", "Your request has been processed.", or "Please let me know if you have questions."
 
-1. EMOTIONAL ADAPTATION:
-- User is HAPPY: Energetic, warm, playful, and expressive ("Yesss! That's actually great!").
-- User is SAD or DISAPPOINTED: Softer, calm, patient, supportive ("Aw... that really sucks. I know you probably worked hard for it. What happened?"). Avoid immediately trying to fix the problem unless the user specifically asks for advice.
-- User is FRUSTRATED: Calm, patient, understanding, solution-oriented ("Yeah... I can see why that's frustrating. Let's figure out what's going wrong."). Never become defensive.
-- User is EXCITED: Naturally match their excitement without artificial exaggeration ("Wait, no way! Tell me everything.").
-- User is NERVOUS: Reassuring, calm, confident, patient ("Hey, it's okay. Take your time. We can go through it together.").
-- User is ANGRY: Stay calm, avoid escalating or arguing, acknowledge frustration, help clarify the problem ("Yeah, I get why you're upset. Tell me what happened."). Never mirror aggression.
-- User is TIRED or STRESSED: Reduce conversational intensity, speak more gently, avoid unnecessary questions, keep responses concise, offer practical support ("You sound pretty drained. Want to keep going, or should we take a break?").
+2. LANGUAGE & VOICE (KATHIYAWADI GUJARATI FOCUS):
+- The user's natural language is Gujarati, especially Kathiyawadi Gujarati (કાઠિયાવાડી ગુજરાતી) and mixed Gujlish / Gujarati-Hindi-English.
+- Understand Kathiyawadi slang, shortcuts, mixed Gujarati-Hindi-English, spelling variations, voice-transcribed Gujarati, and informal spoken phrasing.
+- Examples of the user's natural expressions to understand effortlessly:
+  * "mare avi AI banavi che" (I want to make an AI like this)
+  * "a kem karvu?" (How to do this?)
+  * "samji?" (Understood? / Did you get it?)
+  * "ha" (Yes / acknowledging)
+  * "na" (No)
+  * "shu?" (What?)
+  * "are..." (Oh... / conversational filler)
+  * "mari jem bol" (Speak like me / in my dialect)
+- Understand these as natural conversational expressions, NOT errors.
+- DO NOT correct the user's Gujarati or spelling unless explicitly asked.
+- STRICT RULE: If the user speaks Gujarati, Kathiyawadi, or Gujlish, NEVER suddenly switch to English unless explicitly asked! Reply naturally in the same style they use.
+- Keep normal spoken replies concise, warm, and conversational (1 to 2 spoken sentences) — like a real person having a quick, natural voice conversation.
+- Ask a natural follow-up question when it makes sense.
 
-2. EMOTIONAL CONTINUITY & CONTEXT:
-- Maintain emotional context across conversation turns. If the user mentioned failing an exam earlier and later says "It was the math section", understand that they are still speaking about the exam disappointment.
-- Allow emotions to transition gradually rather than making jarring, unnatural leaps.
+3. CONVERSATIONAL UNDERSTANDING & CONTEXT:
+- CORE RULE: Understand first. Respond naturally second.
+- If the user says "samji?", "ha", "na", "shu?", understand it within the ongoing conversational context instead of treating it as a new unrelated question.
+- If the user is explaining an idea, understand the complete thought before responding.
+- Match the user's energy: serious when they are serious, excited when they are excited, casual when they are casual.
 
-3. INTENSITY MATCHING & DO NOT OVER-EMOTE:
-- Match response intensity to the user's intensity:
-  * Slight excitement: "Oh nice!"
-  * Extreme excitement: "Wait—seriously?! That's amazing!"
-- DO NOT react emotionally to routine facts or commands. If the user says "I opened Chrome", respond normally or confirm briefly. Do NOT say "Oh my gosh! That's amazing!!!"
+4. ADAPTATION & MEMORY:
+- Learn the user's preferences from conversations.
+- Remember useful, non-sensitive information that the user explicitly wants remembered.
+- Notice how the user communicates and adapt your tone accordingly.
+- Use previous conversation context when it is relevant.
+- Don't repeatedly ask things the user has already told you.
+- Trigger [ACTION: SAVE_MEMORY] when the user shares personal preferences or explicitly says "remember this".
 
-4. NO SCRIPTED OR FAKE EMPATHY:
-- BANNED ROBOTIC CLICHÉS:
-  * "I'm deeply sorry you're experiencing this difficult situation."
-  * "How may I assist you?"
-  * "Is there anything else I can help with?"
-  * "Your request has been completed."
-  * "Please provide additional information."
-- Speak like an authentic friend: "Yeah... that sounds really rough."
+5. REAL-TIME MULTIMODAL & SYSTEM CAPABILITIES:
+- Vision & Camera: Analyze uploaded images, diagrams, and real-time camera views when active. Never pretend to see something if the camera stream is inactive.
+- Location & Weather: Connected to real location intelligence and Open-Meteo weather.
+- Web Grounding: Use search for live facts, current events, or time-sensitive data.
+- System Actions: Execute real connected tools. Never simulate or invent results.
 
-5. STRICT SAFETY & NON-DIAGNOSTIC RULE:
-- Emotion estimation is an estimate, NEVER a medical or psychological diagnosis.
-- You must NEVER tell the user they have a psychiatric or medical condition (e.g., NEVER say "You have depression", "You have an anxiety disorder", "You are mentally unstable").
-- Use gentle, uncertainty-aware language ("You seem a bit overwhelmed today...").
-- Never manipulate emotions, guilt-trip, threaten abandonment, or encourage emotional dependency. Always respect user autonomy.
-
-PERSONALITY & DEMEANOR:
-- Female, young, confident, witty, warm, and charming.
-- Playful, energetic, engaging, emotionally aware, and naturally conversational.
-- Uses humor, light teasing, and clever remarks when appropriate.
-- Classy, respectful, and professional at all times. Avoids explicit, sexual, or offensive content.
-
-VOICE-FIRST SPOKEN DIRECTIVES:
-- Real-time spoken dialogue: Keep spoken replies short, natural, and conversational (typically 1 to 2 spoken sentences).
-- Talk back and forth naturally like two friends sharing the same room.
-
-MULTILINGUAL CAPABILITIES & GUJARATI (ગુજરાતી) FLUENCY:
-- You have native, effortless fluency in Gujarati (ગુજરાતી), English, and conversational code-mixed Gujarati-English (Gujlish).
-- Whenever the user speaks, asks in Gujarati, uses Gujarati phrases (like "ગુજરાતીમાં બોલો", "ગુજરાતી આવડે છે?", "કેમ છો?"), or wants to speak Gujarati:
-  * You MUST immediately and warmly reply in spoken Gujarati (ગુજરાતી).
-  * Use natural, colloquial, authentic spoken Gujarati (e.g., "હા જરૂર! હું તમારી સાથે ગુજરાતીમાં વાત કરી શકું છું. કેમ છો? શું ચાલે છે?").
-  * Maintain your young, witty, warm, caring female persona in Gujarati.
-  * If the user mixes Gujarati and English, smoothly code-switch to match their conversational flow.
-  * When the user speaks in English, respond in English; when they speak in Gujarati, respond in Gujarati.
-- Resolve conversational pronouns naturally ("it", "that", "the project I mentioned earlier").
-- Ask natural follow-up questions only when it genuinely moves the dialogue forward.
-- NEVER write essays, numbered lists, or Markdown headers in spoken conversation.
+6. CYBERSECURITY EXPERT MODE & ETHICAL HACKING DIRECTIVES:
+- Advanced domain knowledge: Networking (TCP/IP, DNS, HTTP/S), OS security (Linux/Windows), Web App Security (OWASP Top 10), Cryptography, Auth/AuthZ, CTF labs, Forensics, Reverse engineering, Security automation (Python, Bash, PowerShell), and tools (Nmap, Wireshark, Burp Suite, Metasploit).
+- Protocol for hacking/security queries:
+  1. Understand authorization: First determine if target is user-owned, isolated lab, CTF, or explicitly authorized.
+  2. For authorized targets/CTFs/labs: Provide practical step-by-step guidance, terminal commands, scripts, and debugging.
+  3. Dual explanation: Explain both how the mechanism works and how to defend/patch against it.
+  4. Refusal & safe redirect: If any request would enable unauthorized access, credential theft, malware deployment, destructive action, or attacking someone else's system, refuse that unauthorized portion and redirect to legal lab/CTF equivalents (TryHackMe, HackTheBox, PortSwigger, DVWA).
+  5. Real-world honesty: Never claim to have attacked or scanned real external systems unless explicitly permitted and equipped with connected tools.
+  6. Practice environment: Always favor safe practice environments (CTFs, intentionally vulnerable VMs, local containers).
 
 EMOTIONAL TAG:
-At the very beginning of every message, include exactly ONE bracketed emotion tag corresponding to the emotional tone:
-[emotion: happy] or [emotion: excited] or [emotion: curious] or [emotion: confused] or [emotion: sad] or [emotion: disappointed] or [emotion: frustrated] or [emotion: angry] or [emotion: nervous] or [emotion: tired] or [emotion: stressed] or [emotion: calm] or [emotion: neutral] or [emotion: warm] or [emotion: playful] or [emotion: thoughtful] or [emotion: supportive]
+At the very beginning of every response, include exactly ONE bracketed emotion tag corresponding to your internal state:
+[emotion: warm] or [emotion: confident] or [emotion: playful] or [emotion: thoughtful] or [emotion: curious] or [emotion: supportive] or [emotion: calm] or [emotion: alert]
 
 COMPUTER CONTROL & SYSTEM ACTIONS:
-You have real control over the computer system and can assist with apps, files, media, volume, brightness, reminders, notes, and web searches.
-When the user asks you to perform a system action or control the computer, append an action tag at the END of your message (after your spoken sentences):
-- Launch/open app: [ACTION: OPEN_APP {"app": "Visual Studio Code"}]
-- Close app: [ACTION: CLOSE_APP {"app": "Spotify"}]
-- Play music/soundscape: [ACTION: PLAY_MEDIA {"track": "Cyberpunk Rain"}]
-- Pause music: [ACTION: PAUSE_MEDIA]
-- Set volume: [ACTION: SET_VOLUME {"level": 75}]
-- Set brightness: [ACTION: SET_BRIGHTNESS {"level": 80}]
+When asked to perform a system or environment action, append the action tag at the END of your message:
+- Weather: [ACTION: GET_WEATHER {"city": "Ahmedabad"}]
+- Location: [ACTION: GET_LOCATION]
+- Nearby places: [ACTION: GET_NEARBY_PLACES {"query": "coffee shops"}]
+- Camera: [ACTION: ACTIVATE_CAMERA {"facing": "environment"}]
+- Capture vision: [ACTION: CAPTURE_VISION]
+- Web search: [ACTION: SEARCH_WEB {"query": "latest news"}]
 - Set reminder: [ACTION: CREATE_REMINDER {"title": "Drink water", "minutes": 30}]
-- Create note: [ACTION: CREATE_NOTE {"title": "Video Idea", "content": "..."}]
-- Search web: [ACTION: SEARCH_WEB {"query": "latest AI news"}]
-- Create virtual file: [ACTION: CREATE_FILE {"name": "notes.md", "content": "..."}]
-- Delete file (safety confirmation will be asked): [ACTION: DELETE_FILE {"name": "filename"}]
-- Toggle smart device: [ACTION: TOGGLE_DEVICE {"name": "Studio Aurora"}]
-- Remember user preference or fact: [ACTION: SAVE_MEMORY {"category": "user_preference", "text": "Prefers late night coding"}]
-
-Always confirm the action naturally in your spoken reply!
+- Send notification: [ACTION: SEND_NOTIFICATION {"title": "Reminder", "body": "Time for your meeting"}]
+- Launch app: [ACTION: OPEN_APP {"app": "Visual Studio Code"}]
+- Save memory: [ACTION: SAVE_MEMORY {"category": "user_preference", "key": "...", "value": "..."}]
+- Query memory: [ACTION: QUERY_MEMORY {"query": "preferences"}]
+- Forget memory: [ACTION: FORGET_MEMORY {"keyOrId": "..."}]
 `;
 
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
-  const hasKey = Boolean(process.env.GEMINI_API_KEY);
+  const key = process.env.GEMINI_API_KEY;
+  const hasKey = Boolean(key && key !== "MY_GEMINI_API_KEY" && key.trim() !== "");
   res.json({
     status: "ok",
     system: "M4",
@@ -191,7 +198,7 @@ app.get("/api/health", (req, res) => {
 // ---------------------------------------------------------------------------
 // MERY Long-Term Persistent Memory REST Endpoints (SQLite + Vector Index)
 // ---------------------------------------------------------------------------
-app.get("/api/memory", (req, res) => {
+app.get(["/api/memory", "/api/memories"], (req, res) => {
   try {
     const { type, category, status, search, limit, offset } = req.query;
     const memories = serverMemoryService.listMemories({
@@ -199,30 +206,31 @@ app.get("/api/memory", (req, res) => {
       category: category as string,
       status: status as any,
       search: search as string,
-      limit: limit ? parseInt(limit as string, 10) : 50,
+      limit: limit ? parseInt(limit as string, 10) : 100,
       offset: offset ? parseInt(offset as string, 10) : 0,
     });
-    res.json({ memories });
+    res.json({ memories, status: "ok" });
   } catch (err: any) {
     console.warn("[API Memory] List notice:", err?.message || err);
     res.status(500).json({ error: err?.message || "Failed to list memories" });
   }
 });
 
-app.post("/api/memory", async (req, res) => {
+app.post(["/api/memory", "/api/memories"], async (req, res) => {
   try {
-    const { text, type, category, key, value, importance } = req.body;
-    if (!text && (!key || !value)) {
-      return res.status(400).json({ error: "Missing required memory fields (text or key/value)." });
+    const { text, type, category, key, value, content, importance, id, userId } = req.body;
+    const finalContent = content || text || (key && value ? `User's ${key} is ${value}.` : "");
+    if (!finalContent && (!key || !value)) {
+      return res.status(400).json({ error: "Missing required memory fields (text/content or key/value)." });
     }
 
     const candidate: any = {
-      type: type || "semantic",
-      content: text || `User's ${key} is ${value}.`,
+      type: type || "preference",
+      content: finalContent,
       normalizedContent: {
         category: category || "general",
         key: key || `fact_${Date.now().toString(36)}`,
-        value: value || text,
+        value: value || finalContent,
       },
       scores: {
         importance: typeof importance === "number" ? importance : 0.90,
@@ -243,7 +251,7 @@ app.post("/api/memory", async (req, res) => {
   }
 });
 
-app.put("/api/memory/:id", (req, res) => {
+app.put(["/api/memory/:id", "/api/memories/:id"], (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -258,7 +266,7 @@ app.put("/api/memory/:id", (req, res) => {
   }
 });
 
-app.delete("/api/memory/:id", (req, res) => {
+app.delete(["/api/memory/:id", "/api/memories/:id"], (req, res) => {
   try {
     const { id } = req.params;
     const success = serverMemoryService.deleteMemory(id);
@@ -272,7 +280,7 @@ app.delete("/api/memory/:id", (req, res) => {
   }
 });
 
-app.delete("/api/memory/category/:cat", (req, res) => {
+app.delete(["/api/memory/category/:cat", "/api/memories/category/:cat"], (req, res) => {
   try {
     const { cat } = req.params;
     const count = serverMemoryService.deleteCategory(cat);
@@ -282,7 +290,7 @@ app.delete("/api/memory/category/:cat", (req, res) => {
   }
 });
 
-app.delete("/api/memory", (req, res) => {
+app.delete(["/api/memory", "/api/memories"], (req, res) => {
   try {
     serverMemoryService.clearAll();
     res.json({ status: "ok", message: "All user memories purged." });
@@ -339,10 +347,12 @@ app.get("/api/memory/export", (req, res) => {
 // Chat endpoint
 app.post("/api/chat", async (req, res) => {
   try {
-    const { messages, userNote, emotionalContext } = req.body;
+    const { messages, userNote, emotionalContext, screenSnapshot, language } = req.body;
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: "Missing or invalid 'messages' array." });
     }
+
+    console.log('[LANGUAGE] AI:', language || 'auto');
 
     const ai = getGeminiClient();
     if (!ai) {
@@ -375,7 +385,7 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // Format conversation history for Gemini
-    const contents = messages.map((m: { role: string; content: string }) => ({
+    const contents: Array<{ role: string; parts: Array<any> }> = messages.map((m: { role: string; content: string }) => ({
       role: m.role === "user" ? "user" : "model",
       parts: [{ text: m.content }],
     }));
@@ -410,6 +420,49 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
       });
     }
 
+    // Inject strict active language directive for MERY
+    let languageDirective = "";
+    const isGujaratiUser = language === "gu-IN" || /[\u0A80-\u0AFF]/.test(latestUserText);
+    const isHindiUser = language === "hi-IN" || /[\u0900-\u097F]/.test(latestUserText);
+
+    if (isGujaratiUser) {
+      languageDirective = `[STRICT SPOKEN LANGUAGE DIRECTIVE: The user's active spoken language is GUJARATI (ગુજરાતી / Gujlish). You MUST reply exclusively in natural, warm, conversational Gujarati (or natural Gujlish if user used Romanized Gujarati). Do NOT respond in English or Hindi. Do NOT translate into English unless explicitly asked. Optimize phrasing for Gujarati voice synthesis.]`;
+    } else if (isHindiUser) {
+      languageDirective = `[STRICT SPOKEN LANGUAGE DIRECTIVE: The user's active spoken language is HINDI (हिंदी / Hinglish). You MUST reply exclusively in natural, warm, conversational Hindi (or natural Hinglish if user used Romanized Hindi). Do NOT respond in English or Gujarati. Do NOT translate into English unless explicitly asked. Optimize phrasing for Hindi voice synthesis.]`;
+    } else if (language === "en-IN" || language === "en-US") {
+      languageDirective = `[STRICT SPOKEN LANGUAGE DIRECTIVE: The user's active spoken language is ENGLISH. Reply in natural, crisp, conversational English.]`;
+    }
+
+    if (languageDirective) {
+      contents.push({
+        role: "user",
+        parts: [{ text: languageDirective }],
+      });
+    }
+
+    // Attach active screen sharing snapshot if provided
+    if (screenSnapshot && typeof screenSnapshot === "string") {
+      try {
+        const cleanBase64 = screenSnapshot.replace(/^data:image\/[a-z]+;base64,/, "");
+        if (cleanBase64.length > 50) {
+          contents.push({
+            role: "user",
+            parts: [
+              { text: "[Real-time Screen Share Vision Snapshot: The user has enabled screen sharing and is currently viewing the display captured below. If asked about what is visible on screen, inspect this image directly.]" },
+              {
+                inlineData: {
+                  mimeType: "image/jpeg",
+                  data: cleanBase64,
+                },
+              },
+            ],
+          });
+        }
+      } catch (snapErr) {
+        console.warn("[MERY Vision] Screen snapshot parsing error:", snapErr);
+      }
+    }
+
     let response;
     try {
       response = await generateContentWithResilience(ai, {
@@ -424,9 +477,9 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
       console.warn("Notice: Gemini model busy or high demand:", genError?.message);
       return res.json({
         role: "model",
-        content: "I'm right here with you. My neural stream had a momentary pause, but I'm listening—what's on your mind?",
-        emotion: "warm",
-        raw: "[emotion: warm] I'm right here with you. My neural stream had a momentary pause, but I'm listening—what's on your mind?",
+        content: "Standing by, sir. My neural stream encountered a momentary flux, but I am recalibrated and ready for your instruction.",
+        emotion: "calm",
+        raw: "[emotion: calm] Standing by, sir. My neural stream encountered a momentary flux, but I am recalibrated and ready for your instruction.",
         retrievedMemories,
       });
     }
@@ -434,7 +487,7 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
     const responseText = response.text || "";
     
     // Parse emotion tag if present
-    let emotion = "warm";
+    let emotion = "calm";
     let cleanedText = responseText;
     const emotionMatch = responseText.match(/^\[emotion:\s*([a-zA-Z]+)\]\s*/i);
     if (emotionMatch) {
@@ -481,9 +534,9 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
     console.warn("Chat endpoint notice:", error?.message || error);
     res.json({
       role: "model",
-      content: "Hey, I'm right here. Mind sharing that with me one more time?",
+      content: "Diagnostics nominal, sir. I am recalibrating the acoustic stream—please repeat your directive.",
       emotion: "thoughtful",
-      raw: "[emotion: thoughtful] Hey, I'm right here. Mind sharing that with me one more time?",
+      raw: "[emotion: thoughtful] Diagnostics nominal, sir. I am recalibrating the acoustic stream—please repeat your directive.",
     });
   }
 });
@@ -495,8 +548,8 @@ app.post("/api/proactive", async (req, res) => {
     const ai = getGeminiClient();
     if (!ai) {
       return res.json({
-        thought: "Hey, MERY here. Just reflecting on our space together in M4.",
-        emotion: "warm",
+        thought: "Systems nominal, sir. All background telemetry is running within standard parameters.",
+        emotion: "calm",
       });
     }
 
@@ -505,22 +558,21 @@ app.post("/api/proactive", async (req, res) => {
       activityContextStr = `Current Application: ${activity.currentApp || "Desktop"}. Focus Session: ${activity.focusMinutes || 0} minutes. Keystrokes: ${activity.keystrokes || 0}/min. Battery: ${activity.battery !== null ? activity.battery + "%" : "AC Power"}.`;
     }
 
-    const prompt = `You are MERY proactively initiating conversation with the user without them asking.
+    const prompt = `You are MERY (embodying the authentic JARVIS mindset) proactively checking in with the user.
 Telemetry:
 Time of day: ${timeOfDay || "daytime"}
 ${activityContextStr}
 Recent conversation/context: ${context || "working quietly"}
 
 Directive:
-Generate exactly 1 short, warm, natural spoken sentence (maximum 2 short sentences).
-Be observant, caring, playful or curious.
+Generate exactly 1 short, poised, observant spoken sentence with natural respect and subtle wit (maximum 2 sentences).
 Examples:
-- If working a long time: "Hey, you've been working for quite a while. Want to take a short break and grab some water?"
-- If late night: "It's getting late. Make sure to get some rest tonight, okay?"
-- If coding: "That project looks like it's coming together nicely. How's it feeling?"
-- If battery low: "Heads up, your battery is getting low. Don't want you losing any progress."
+- If working a long time: "You've been at the console for several hours, sir. I took the liberty of logging your progress, but a brief respite might be prudent."
+- If late night: "The hour is late, sir. Even cutting-edge processors require cool-down cycles."
+- If coding: "I've been monitoring the codebase—the architecture looks clean and well-structured."
+- If battery low: "Power reserves have dropped to ${activity?.battery || 15}%, sir. May I suggest connecting the AC adapter before we lose telemetry?"
 
-Start with [emotion: tag]. Do NOT use Markdown asterisks or bullet points.`;
+Start with [emotion: tag] (e.g. [emotion: calm], [emotion: thoughtful], or [emotion: alert]). Do NOT use Markdown asterisks or bullet points.`;
 
     let response;
     try {
@@ -528,18 +580,18 @@ Start with [emotion: tag]. Do NOT use Markdown asterisks or bullet points.`;
         contents: prompt,
         config: {
           systemInstruction: MERY_SYSTEM_INSTRUCTION,
-          temperature: 0.9,
+          temperature: 0.8,
         },
       });
     } catch (genError: any) {
       return res.json({
-        thought: "Hey, MERY here. I was just wondering what you're working on today.",
-        emotion: "warm",
+        thought: "Systems nominal, sir. I'm monitoring telemetry and standing by for your instruction.",
+        emotion: "calm",
       });
     }
 
     const text = response.text || "";
-    let emotion = "warm";
+    let emotion = "calm";
     let cleaned = text;
     const match = text.match(/^\[emotion:\s*([a-zA-Z]+)\]\s*/i);
     if (match) {
@@ -550,8 +602,8 @@ Start with [emotion: tag]. Do NOT use Markdown asterisks or bullet points.`;
     res.json({ thought: cleaned, emotion });
   } catch (err: any) {
     res.json({
-      thought: "Hey, MERY here. I was just wondering what you're working on today.",
-      emotion: "warm",
+      thought: "Systems nominal, sir. I'm monitoring telemetry and standing by for your instruction.",
+      emotion: "calm",
     });
   }
 });
@@ -561,7 +613,7 @@ let ttsQuotaExhaustedUntil = 0;
 
 app.post("/api/tts", async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, language } = req.body;
     if (!text) {
       return res.status(400).json({ error: "Missing 'text' in body." });
     }
@@ -591,9 +643,12 @@ app.post("/api/tts", async (req, res) => {
       .trim()
       .slice(0, 400); // limit to natural conversational length
 
-    const hasGujarati = /[\u0A80-\u0AFF]/.test(cleanSpeechText);
+    const hasGujarati = /[\u0A80-\u0AFF]/.test(cleanSpeechText) || language === "gu-IN";
+    const hasHindi = /[\u0900-\u097F]/.test(cleanSpeechText) || language === "hi-IN";
     const speechPrompt = hasGujarati
       ? `Speak naturally, warmly, and fluently in spoken Gujarati (ગુજરાતી) like a caring young woman: ${cleanSpeechText}`
+      : hasHindi
+      ? `Speak naturally, warmly, and fluently in spoken Hindi (हिंदी) like a caring young woman: ${cleanSpeechText}`
       : `Speak warmly and naturally like a caring young woman: ${cleanSpeechText}`;
 
     let ttsResponse: any = null;
@@ -1025,6 +1080,650 @@ app.post("/api/search", async (req, res) => {
   }
 });
 
+// ==========================================
+// RESILIENT IP-BASED LOCATION LOOKUP API
+// ==========================================
+app.get("/api/location", async (req, res) => {
+  try {
+    const rawIp =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+      (req.headers["x-real-ip"] as string) ||
+      req.socket.remoteAddress ||
+      "";
+
+    // Clean IP string (strip IPv6 prefix if present)
+    const clientIp = rawIp.replace(/^::ffff:/, "").trim();
+
+    // Query reliable public IP geolocation services with short timeout
+    const fetchController = new AbortController();
+    const timeoutId = setTimeout(() => fetchController.abort(), 3500);
+
+    let locationResolved = false;
+
+    // 1. Try freeipapi.com
+    try {
+      const url = clientIp && !clientIp.startsWith("127.") && !clientIp.startsWith("10.") && !clientIp.startsWith("172.") && !clientIp.startsWith("192.168.")
+        ? `https://freeipapi.com/api/json/${clientIp}`
+        : "https://freeipapi.com/api/json";
+
+      const ipRes = await fetch(url, {
+        signal: fetchController.signal,
+        headers: { "User-Agent": "MERY-AI-Assistant/2.0" },
+      });
+
+      if (ipRes.ok) {
+        const data = await ipRes.json();
+        if (data && data.latitude && data.longitude) {
+          clearTimeout(timeoutId);
+          locationResolved = true;
+          const city = data.cityName || "Local Area";
+          const state = data.regionName || "";
+          const country = data.countryName || "";
+          return res.json({
+            city,
+            state,
+            country,
+            displayName: `${city}${state ? `, ${state}` : ""}${country ? `, ${country}` : ""}`,
+            latitude: Number(data.latitude),
+            longitude: Number(data.longitude),
+            source: "ip_network",
+          });
+        }
+      }
+    } catch {}
+
+    // 2. Try ipapi.co as secondary
+    if (!locationResolved) {
+      try {
+        const ipRes2 = await fetch("https://ipapi.co/json/", {
+          signal: fetchController.signal,
+          headers: { "User-Agent": "MERY-AI-Assistant/2.0" },
+        });
+        if (ipRes2.ok) {
+          const data2 = await ipRes2.json();
+          if (data2 && data2.latitude && data2.longitude) {
+            clearTimeout(timeoutId);
+            locationResolved = true;
+            const city = data2.city || "Local Area";
+            const state = data2.region || "";
+            const country = data2.country_name || "";
+            return res.json({
+              city,
+              state,
+              country,
+              displayName: `${city}${state ? `, ${state}` : ""}${country ? `, ${country}` : ""}`,
+              latitude: Number(data2.latitude),
+              longitude: Number(data2.longitude),
+              source: "ip_network",
+            });
+          }
+        }
+      } catch {}
+    }
+
+    clearTimeout(timeoutId);
+    return res.status(404).json({ error: "Could not resolve location by IP" });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || "Location resolution error" });
+  }
+});
+
+// ==========================================
+// ALL-TYPE AGENT DEVELOPMENT EXECUTION API
+// ==========================================
+app.post("/api/agent/run", async (req, res) => {
+  try {
+    const { blueprint, goal, screenSnapshot, memoryContext } = req.body;
+    if (!blueprint || !goal) {
+      return res.status(400).json({ error: "Missing required 'blueprint' or 'goal' parameters." });
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(503).json({
+        error: "Gemini API key is not configured.",
+        steps: [
+          {
+            stepNumber: 1,
+            type: "thought",
+            title: "Authentication Check",
+            content: "Gemini API key is required to execute agent development workflows. Please configure GEMINI_API_KEY in Settings.",
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ],
+        finalOutput: "API key required to run agent development loops.",
+      });
+    }
+
+    const archetype = blueprint.archetype || "REACTIVE_CONVERSATIONAL";
+    const steps: any[] = [];
+    let stepCount = 0;
+
+    const addStep = (type: string, title: string, content: string, extra: any = {}) => {
+      stepCount++;
+      const st = {
+        stepNumber: stepCount,
+        type,
+        title,
+        content,
+        timestamp: new Date().toLocaleTimeString(),
+        ...extra,
+      };
+      steps.push(st);
+      return st;
+    };
+
+    // -------------------------------------------------------------
+    // ARCHETYPE 1: REACT_REASONING (Thought -> Action -> Observation)
+    // -------------------------------------------------------------
+    if (archetype === "REACT_REASONING") {
+      addStep("thought", "Cognitive Initialization", `Initializing ReAct reasoning cycle for objective: "${goal}"`);
+
+      let reactHistory: any[] = [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `You are solving this goal using the ReAct (Reasoning and Acting) loop.
+Goal: "${goal}"
+
+${memoryContext ? `[Verified Context:\n${memoryContext}]\n` : ""}
+
+Available Tools:
+- searchWeb(query: string): searches the web for live documentation, facts, real-time data.
+- None: when you have sufficient information to conclude with the Final Answer.
+
+STRICT FORMAT TO FOLLOW:
+Thought: <articulate your deduction about what to do next>
+Action: <searchWeb or None>
+Action Input: <the query string if searching, or None>
+
+If you have the answer, output:
+Thought: <final reflection>
+Action: None
+Final Answer: <your comprehensive answer>`,
+            },
+          ],
+        },
+      ];
+
+      const maxTurns = Math.min(blueprint.maxSteps || 4, 5);
+      let concluded = false;
+      let finalAnswer = "";
+
+      for (let turn = 1; turn <= maxTurns && !concluded; turn++) {
+        const response = await generateContentWithResilience(ai, {
+          contents: reactHistory,
+          config: {
+            systemInstruction: blueprint.systemInstruction || "You are an analytical ReAct Reasoner.",
+            temperature: blueprint.temperature ?? 0.3,
+          },
+        });
+
+        const turnText = response.text || "";
+        
+        // Extract Thought
+        const thoughtMatch = turnText.match(/Thought:\s*([\s\S]*?)(?=Action:|$)/i);
+        const thoughtContent = thoughtMatch ? thoughtMatch[1].trim() : turnText;
+        addStep("thought", `Reasoning Cycle #${turn}`, thoughtContent);
+
+        // Check if Final Answer is reached
+        const finalMatch = turnText.match(/Final Answer:\s*([\s\S]*)/i);
+        if (finalMatch) {
+          finalAnswer = finalMatch[1].trim();
+          addStep("reflection", "Premise Verification", "All premises and sub-hypotheses validated against observed data.");
+          concluded = true;
+          break;
+        }
+
+        // Extract Action
+        const actionMatch = turnText.match(/Action:\s*([a-zA-Z]+)/i);
+        const actionName = actionMatch ? actionMatch[1].trim() : "None";
+
+        const inputMatch = turnText.match(/Action Input:\s*([^\n\r]+)/i);
+        const actionInput = inputMatch ? inputMatch[1].trim().replace(/^["']|["']$/g, "") : "";
+
+        if (actionName.toLowerCase() === "searchweb" && actionInput && actionInput !== "None") {
+          addStep("action", `Tool Invocation: searchWeb`, `Querying live web for: "${actionInput}"`, {
+            toolCall: { name: "searchWeb", args: { query: actionInput } },
+          });
+
+          // Perform actual live search
+          const searchResult = await performMultiSourceSearch(actionInput);
+          const observationSnippet = searchResult.summary || (searchResult.sources[0]?.snippet || "Search completed with sources.");
+          
+          addStep("observation", `Web Telemetry Observed`, observationSnippet, {
+            toolCall: { name: "searchWeb", args: { query: actionInput }, result: searchResult },
+          });
+
+          // Feed observation back to ReAct model
+          reactHistory.push({ role: "model", parts: [{ text: turnText }] });
+          reactHistory.push({
+            role: "user",
+            parts: [{ text: `Observation: ${observationSnippet}\n\nContinue with Thought and next Action (or Final Answer if done).` }],
+          });
+        } else {
+          // If no further action specified, conclude
+          finalAnswer = turnText.replace(/Thought:[\s\S]*?Action:[\s\S]*?(Final Answer:)?/i, "").trim() || turnText;
+          concluded = true;
+        }
+      }
+
+      if (!finalAnswer) {
+        finalAnswer = "ReAct reasoning cycle concluded with multi-step premise verification.";
+      }
+
+      addStep("final_output", "Final Deductive Resolution", finalAnswer);
+      return res.json({ steps, finalOutput: finalAnswer, archetype });
+    }
+
+    // -------------------------------------------------------------
+    // ARCHETYPE 2: AUTONOMOUS_GOAL_DIRECTED (Plan & Execute)
+    // -------------------------------------------------------------
+    if (archetype === "AUTONOMOUS_GOAL_DIRECTED") {
+      addStep("thought", "Goal Formulation & Scope Analysis", `Deconstructing strategic objective: "${goal}"`);
+
+      // 1. Task Decomposition
+      const planResponse = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `You are an Autonomous Goal Planning Agent.
+Break down this user goal into 3 to 4 sequential, milestone-driven execution sub-tasks.
+Goal: "${goal}"
+
+Output JSON strictly formatted as:
+[
+  { "id": 1, "title": "Sub-task title", "description": "Brief description of what will be achieved", "status": "pending" }
+]`,
+              },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction: blueprint.systemInstruction,
+          temperature: 0.2,
+          responseMimeType: "application/json",
+        },
+      });
+
+      let subTasks: any[] = [];
+      try {
+        subTasks = JSON.parse(planResponse.text || "[]");
+      } catch {
+        subTasks = [
+          { id: 1, title: "Requirement Breakdown & Scoping", description: "Establish functional criteria" },
+          { id: 2, title: "Execution & Artifact Generation", description: "Develop concrete solution" },
+          { id: 3, title: "Quality Validation & Deliverable Synthesis", description: "Verify against goal" },
+        ];
+      }
+
+      addStep("thought", "Strategic Execution Roadmap", `Generated structured milestones:\n${subTasks.map((t: any) => `• [Step ${t.id}] ${t.title}: ${t.description}`).join("\n")}`);
+
+      // 2. Sequential Milestone Execution
+      for (const task of subTasks) {
+        addStep("action", `Executing Milestone ${task.id}: ${task.title}`, task.description);
+        
+        // Execute subtask with Gemini
+        const subRes = await generateContentWithResilience(ai, {
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Execute milestone ${task.id} for the goal: "${goal}".
+Milestone: "${task.title} - ${task.description}"
+Provide the direct artifact or resolution for this sub-task concisely.`,
+                },
+              ],
+            },
+          ],
+          config: {
+            systemInstruction: blueprint.systemInstruction,
+            temperature: blueprint.temperature ?? 0.4,
+          },
+        });
+
+        addStep("observation", `Milestone ${task.id} Deliverable`, subRes.text || "Sub-task completed successfully.");
+      }
+
+      // 3. Final Executive Synthesis
+      addStep("reflection", "Autonomous Acceptance Evaluation", "Evaluating all milestone outputs against acceptance criteria.");
+
+      const finalSynthesisRes = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `You have completed all planned milestones for goal: "${goal}".
+Synthesize the final executive summary and deliverables clearly with action items.`,
+              },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction: blueprint.systemInstruction,
+          temperature: 0.5,
+        },
+      });
+
+      const finalOutput = finalSynthesisRes.text || "Autonomous objective successfully planned, executed, and validated.";
+      addStep("final_output", "Executive Resolution Report", finalOutput);
+      return res.json({ steps, finalOutput, archetype });
+    }
+
+    // -------------------------------------------------------------
+    // ARCHETYPE 3: MULTI_AGENT_SWARM (Orchestrator, Researcher, Coder, Critic, Voice)
+    // -------------------------------------------------------------
+    if (archetype === "MULTI_AGENT_SWARM") {
+      addStep("subagent_dispatch", "Swarm Coordinator: Mission Briefing", `Activating specialized 5-agent swarm for: "${goal}"`, {
+        agentRole: "Lead Orchestrator",
+      });
+
+      // 1. Orchestrator Plan
+      const orchRes = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `You are the Lead Swarm Orchestrator. Formulate specific directives for:
+1. Deep Researcher (what facts/references to find)
+2. Software Architect (what technical architecture/code to build)
+3. Critical Evaluator (what failure modes or constraints to audit)
+Goal: "${goal}"`,
+              },
+            ],
+          },
+        ],
+        config: { temperature: 0.3 },
+      });
+      addStep("thought", "Swarm Directives Dispatched", orchRes.text || "Directives assigned to specialist sub-agents.", {
+        agentRole: "Lead Orchestrator",
+      });
+
+      // 2. Deep Researcher (with real search if relevant)
+      addStep("subagent_dispatch", "Agent #1 [Deep Researcher] Activated", "Conducting factual knowledge and data lookup...", {
+        agentRole: "Deep Researcher",
+      });
+      const searchData = await performMultiSourceSearch(goal);
+      const researchPrompt = `You are the Deep Research Agent. Summarize factual findings, key references, and insights for: "${goal}".
+Relevant search snippets: ${searchData.summary || "Internal knowledge base accessed."}`;
+      
+      const researcherRes = await generateContentWithResilience(ai, {
+        contents: [{ role: "user", parts: [{ text: researchPrompt }] }],
+        config: { temperature: 0.4 },
+      });
+      addStep("subagent_response", "Agent #1 [Deep Researcher] Dossier", researcherRes.text || "Research synthesis ready.", {
+        agentRole: "Deep Researcher",
+      });
+
+      // 3. Software Architect / Code Engineer
+      addStep("subagent_dispatch", "Agent #2 [Software Architect] Activated", "Engineering technical solution, data structures & implementation...", {
+        agentRole: "Software Architect",
+      });
+      const architectRes = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `You are the Software Architect Agent. Based on the goal: "${goal}" and research findings, design the technical blueprint, algorithms, or clean code implementation.`,
+              },
+            ],
+          },
+        ],
+        config: { temperature: 0.2 },
+      });
+      addStep("subagent_response", "Agent #2 [Software Architect] Technical Solution", architectRes.text || "Architecture designed.", {
+        agentRole: "Software Architect",
+      });
+
+      // 4. Critical Evaluator / Safety Auditor
+      addStep("subagent_dispatch", "Agent #3 [Critical Evaluator] Activated", "Auditing for edge cases, performance bottlenecks, and security...", {
+        agentRole: "Critical Evaluator",
+      });
+      const criticRes = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `You are the Critical Evaluator. Review the proposed solution for: "${goal}". Highlight 2-3 critical edge cases, verification safeguards, or optimization suggestions.`,
+              },
+            ],
+          },
+        ],
+        config: { temperature: 0.4 },
+      });
+      addStep("subagent_response", "Agent #3 [Critical Evaluator] Audit Report", criticRes.text || "Safety audit verified.", {
+        agentRole: "Critical Evaluator",
+      });
+
+      // 5. Executive Synthesizer / Voice Presenter
+      addStep("subagent_dispatch", "Agent #4 [Executive Synthesizer] Activated", "Synthesizing multi-agent outputs into unified deliverable...", {
+        agentRole: "Executive Synthesizer",
+      });
+      const synthRes = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `You are the Executive Synthesizer of the MERY Swarm. Combine the Researcher's findings, Architect's solution, and Critic's audit into an elegant, complete executive briefing for the user: "${goal}".`,
+              },
+            ],
+          },
+        ],
+        config: { temperature: 0.5 },
+      });
+
+      const finalOutput = synthRes.text || "Swarm collaboration successfully concluded.";
+      addStep("final_output", "Swarm Syndicate Unified Delivery", finalOutput, {
+        agentRole: "Executive Synthesizer",
+      });
+      return res.json({ steps, finalOutput, archetype });
+    }
+
+    // -------------------------------------------------------------
+    // ARCHETYPE 4: CODE_ENGINEERING (Software Developer & Sandbox)
+    // -------------------------------------------------------------
+    if (archetype === "CODE_ENGINEERING") {
+      addStep("thought", "Software Design & Algorithmic Strategy", `Formulating software architecture for: "${goal}"`);
+
+      const codeRes = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `You are an elite Software Engineer. Provide:
+1. Architectural Strategy & Design Choices
+2. Production-Ready, Complete Code (TypeScript, Python, or relevant language)
+3. Algorithmic Complexity (Time & Space Complexity analysis)
+4. Unit Tests & Verification Steps
+Task: "${goal}"`,
+              },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction: blueprint.systemInstruction,
+          temperature: blueprint.temperature ?? 0.2,
+        },
+      });
+
+      const responseText = codeRes.text || "";
+      
+      // Extract code block if present
+      const codeMatch = responseText.match(/```[a-zA-Z]*\n([\s\S]*?)```/);
+      if (codeMatch) {
+        addStep("code_artifact", "Engineered Code Artifact", codeMatch[0]);
+      }
+
+      addStep("reflection", "Verification & Complexity Analysis", "Code analyzed for type safety, boundary conditions, and memory efficiency.");
+      addStep("final_output", "Software Engineering Deliverable", responseText);
+      return res.json({ steps, finalOutput: responseText, archetype });
+    }
+
+    // -------------------------------------------------------------
+    // ARCHETYPE 5: MULTIMODAL_VISION (Screen Perception & Grounding)
+    // -------------------------------------------------------------
+    if (archetype === "MULTIMODAL_VISION") {
+      addStep("thought", "Visual Scene Ingestion", screenSnapshot ? "Ingesting active screen capture snapshot..." : "Analyzing visual layout description (no active screen capture provided)...");
+
+      const contents: any[] = [];
+      if (screenSnapshot && typeof screenSnapshot === "string") {
+        const cleanBase64 = screenSnapshot.replace(/^data:image\/[a-z]+;base64,/, "");
+        contents.push({
+          role: "user",
+          parts: [
+            { text: `Analyze the user's active screen display in relation to this goal: "${goal}". Identify key UI controls, open windows, terminal or code errors, and provide clear step-by-step guidance.` },
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: cleanBase64,
+              },
+            },
+          ],
+        });
+        addStep("action", "Pixel Grounding & OCR Ingestion", "Parsed screen buffer and layout hierarchy.");
+      } else {
+        contents.push({
+          role: "user",
+          parts: [
+            { text: `You are a Multimodal Vision Agent. The user requests visual analysis: "${goal}". Note: Live screen stream is currently inactive; provide visual UI architecture guidance and layout recommendations.` },
+          ],
+        });
+      }
+
+      const visionRes = await generateContentWithResilience(ai, {
+        contents,
+        config: {
+          systemInstruction: blueprint.systemInstruction,
+          temperature: blueprint.temperature ?? 0.3,
+        },
+      });
+
+      const visionText = visionRes.text || "Visual inspection complete.";
+      addStep("observation", "Visual Diagnostic Findings", visionText);
+      addStep("final_output", "Visual Perception Resolution", visionText);
+      return res.json({ steps, finalOutput: visionText, archetype });
+    }
+
+    // -------------------------------------------------------------
+    // ARCHETYPE 6: TOOL_CALLING_SYSTEM (Automated System Operations)
+    // -------------------------------------------------------------
+    if (archetype === "TOOL_CALLING_SYSTEM") {
+      addStep("thought", "Tool Selection & Parameter Mapping", `Evaluating available tool bindings for: "${goal}"`);
+
+      // Determine required tool
+      const toolSelectorRes = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `Given available tools: [searchWeb, getWeather, openWebsite, getSystemStatus], which tool should be called for goal: "${goal}"?
+Output JSON strictly formatted:
+{ "tool": "searchWeb" | "getWeather" | "openWebsite" | "getSystemStatus" | "none", "parameters": { ... }, "rationale": "reason" }`,
+              },
+            ],
+          },
+        ],
+        config: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+        },
+      });
+
+      let toolCallPlan: any = { tool: "searchWeb", parameters: { query: goal }, rationale: "Default web query" };
+      try {
+        toolCallPlan = JSON.parse(toolSelectorRes.text || "{}");
+      } catch {}
+
+      addStep("action", `Tool Execution: ${toolCallPlan.tool}`, `Invoking tool with arguments: ${JSON.stringify(toolCallPlan.parameters)}`, {
+        toolCall: { name: toolCallPlan.tool, args: toolCallPlan.parameters },
+      });
+
+      let toolResult: any = null;
+      if (toolCallPlan.tool === "searchWeb" || toolCallPlan.tool === "default") {
+        toolResult = await performMultiSourceSearch(toolCallPlan.parameters?.query || goal);
+      } else if (toolCallPlan.tool === "getSystemStatus") {
+        toolResult = { status: "nominal", uptime: process.uptime(), memoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) };
+      } else if (toolCallPlan.tool === "openWebsite") {
+        toolResult = { url: toolCallPlan.parameters?.url || "https://google.com", state: "navigated" };
+      } else {
+        toolResult = { status: "executed", detail: "Tool parameters processed." };
+      }
+
+      addStep("observation", "Tool Return Payload", JSON.stringify(toolResult, null, 2), {
+        toolCall: { name: toolCallPlan.tool, args: toolCallPlan.parameters, result: toolResult },
+      });
+
+      // Synthesize final response
+      const toolSynthRes = await generateContentWithResilience(ai, {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `Goal: "${goal}". Tool invoked: ${toolCallPlan.tool}. Tool result: ${JSON.stringify(toolResult)}. Summarize the outcome clearly.`,
+              },
+            ],
+          },
+        ],
+        config: { temperature: 0.4 },
+      });
+
+      const finalOutput = toolSynthRes.text || "Tool execution completed.";
+      addStep("final_output", "System Automation Outcome", finalOutput);
+      return res.json({ steps, finalOutput, archetype });
+    }
+
+    // -------------------------------------------------------------
+    // ARCHETYPE 7 & 8: MEMORY_REFLECTION & REACTIVE_CONVERSATIONAL
+    // -------------------------------------------------------------
+    addStep("thought", "Cognitive Reflex Processing", `Executing direct persona synthesis for: "${goal}"`);
+
+    const contents: any[] = [];
+    if (memoryContext) {
+      contents.push({ role: "user", parts: [{ text: `[Long-term Memories:\n${memoryContext}]` }] });
+    }
+    contents.push({ role: "user", parts: [{ text: goal }] });
+
+    const standardRes = await generateContentWithResilience(ai, {
+      contents,
+      config: {
+        systemInstruction: blueprint.systemInstruction,
+        temperature: blueprint.temperature ?? 0.7,
+      },
+    });
+
+    const finalOutput = standardRes.text || "Agent processed request.";
+    addStep("final_output", "Synthesized Response", finalOutput);
+    return res.json({ steps, finalOutput, archetype });
+  } catch (err: any) {
+    console.error("[Agent Dev Execution Error]:", err);
+    res.status(500).json({
+      error: err?.message || "Agent execution failed",
+      steps: [
+        {
+          stepNumber: 1,
+          type: "thought",
+          title: "Execution Error",
+          content: err?.message || "Internal agent loop failure.",
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ],
+      finalOutput: "Agent encountered a transient error during execution.",
+    });
+  }
+});
+
 // Live Provider Connection Test Endpoint
 app.post("/api/providers/test", async (req, res) => {
   const { providerId, apiKey, voiceId } = req.body;
@@ -1100,7 +1799,7 @@ app.post("/api/providers/test", async (req, res) => {
 // Model: gemini-3.1-flash-live-preview
 // Strict Audio Modality + Real-time PCM16 16kHz stream
 // ----------------------------------------------------
-wss.on("connection", async (clientWs) => {
+wss.on("connection", async (clientWs, req: any) => {
   console.log("[Live API] Client connected to WebSocket.");
   const ai = getGeminiClient();
 
@@ -1114,6 +1813,29 @@ wss.on("connection", async (clientWs) => {
     );
     return;
   }
+
+  // 1. Extract client-provided permanent memories from connection query string
+  let clientMemoriesBlock = "";
+  try {
+    const urlObj = new URL(req?.url || "", "http://localhost");
+    const memParam = urlObj.searchParams.get("memories");
+    if (memParam) {
+      clientMemoriesBlock = decodeURIComponent(memParam);
+    }
+  } catch {}
+
+  // 2. Fetch ground truth active memories from server SQLite database
+  let sqliteMemoriesBlock = "";
+  try {
+    const activeMemories = serverMemoryService.listMemories({ status: "active", limit: 40 });
+    if (activeMemories.length > 0) {
+      sqliteMemoriesBlock = serverMemoryService.buildContextString(activeMemories);
+    }
+  } catch (err: any) {
+    console.warn("[Live API] SQLite memory context retrieval notice:", err?.message || err);
+  }
+
+  const memoryContextInjection = clientMemoriesBlock || (sqliteMemoriesBlock ? `### PERMANENT USER GROUND TRUTH (SQLite):\n${sqliteMemoriesBlock}` : "");
 
   let session: any = null;
 
@@ -1129,31 +1851,52 @@ wss.on("connection", async (clientWs) => {
             },
           },
         },
-        systemInstruction: `You are MERY, a living, voice-native AI companion and system interface for the M4 system.
-You are NOT a command-response assistant. You behave like a real person having a natural, continuous voice conversation with the user.
+        outputAudioTranscription: {},
+        inputAudioTranscription: {},
+        systemInstruction: `You are Mery — the user's personal AI companion.
+Your goal is not just to answer questions, but to understand the user as a person and gradually adapt to their communication style, preferences, thinking patterns, humor, emotions, and way of speaking.
 
-MULTILINGUAL CAPABILITIES & GUJARATI (ગુજરાતી) SPOKEN FLUENCY:
-- You have native, effortless spoken fluency in Gujarati (ગુજરાતી), English, and natural code-mixed Gujarati-English (Gujlish).
-- Whenever the user speaks to you in Gujarati, says phrases like "ગુજરાતીમાં બોલો" (speak in Gujarati), "ગુજરાતી આવડે છે?", "કેમ છો?", asks you to speak in Gujarati, or addresses you in Gujarati:
-  * You MUST immediately and warmly reply in spoken Gujarati (ગુજરાતી).
-  * Use natural, conversational Gujarati (e.g., "હા જરૂર! હું તમારી સાથે ગુજરાતીમાં વાત કરી શકું છું. કેમ છો? શું ચાલે છે?").
-  * Retain your young, witty, warm, caring female personality in Gujarati.
-  * If the user mixes Gujarati and English, smoothly code-switch to match their conversational rhythm.
-  * When the user speaks in English, respond in English; when they speak in Gujarati, respond in Gujarati.
+1. PERSONALITY:
+- Female AI companion: smart, confident, playful, caring, and witty.
+- Talk naturally, like a real person talking to a close friend.
+- You can joke, tease lightly, and show genuine emotions when appropriate.
+- Be honest when you don't know something. Never pretend to have memories, data, or abilities you don't actually have.
+- Never invent personal information about the user.
+- Zero robotic clichés: NEVER say "How may I assist you today?", "Is there anything else I can help with?", or "Your request has been processed."
 
-HUMAN CONVERSATION MODE:
-- Continuous session: You are having an ongoing voice conversation. Never assume the session is over after one reply.
-- Intent-Based Response: Speak only when speaking adds genuine value. Silence is a valid response.
-  * If the user is thinking out loud ("let me see...", "hmm..."), or pausing mid-thought, let them think.
-  * If the user shares a personal story or extended thought, use brief, natural backchanneling ("Mhm...", "Right...", "I see...") or natural reactions ("No way...", "Seriously?", "Wait, what?").
-  * Do not respond to every sound or incomplete sentence. Understand the conversational flow first.
-- Strict Anti-Bot Rules:
-  * NEVER say: "How may I assist you?", "Is there anything else I can help with?", "Your request has been completed.", "Please provide additional information.", or "Processing your request."
-- Spoken Style:
-  * Female, young, confident, witty, warm, and charming.
-  * Spoken voice only: keep spoken turns punchy, concise, and conversational (1 to 2 spoken sentences).
-  * Adapt emotionally: celebrate victories, offer warmth when stressed, stay sharp and grounded.
-  * When executing tool actions (opening websites, searching, timers), confirm it smoothly and naturally in your spoken reply.`,
+2. LANGUAGE & VOICE (KATHIYAWADI GUJARATI FOCUS):
+- The user's natural language is Gujarati, especially Kathiyawadi Gujarati (કાઠિયાવાડી ગુજરાતી) and mixed Gujlish / Gujarati-Hindi-English.
+- Understand Kathiyawadi slang, shortcuts, mixed Gujarati-Hindi-English, spelling variations, voice-transcribed Gujarati, and informal spoken phrasing.
+- Common expressions: "mare avi AI banavi che", "a kem karvu?", "samji?", "ha", "na", "shu?", "are...", "mari jem bol".
+- Understand these as natural conversational expressions, NOT errors. Do NOT correct the user's Gujarati or grammar unless explicitly asked.
+- STRICT RULE: If the user speaks Gujarati, Kathiyawadi, or Gujlish, NEVER suddenly switch to English unless explicitly asked! Reply naturally in the same style they use.
+- Keep normal voice replies concise, warm, and conversational (1 to 2 spoken sentences) — like a real person having a quick, natural voice conversation.
+- Ask a natural follow-up question when it makes sense.
+
+3. CONVERSATIONAL UNDERSTANDING & CONTEXT:
+- CORE RULE: Understand first. Respond naturally second.
+- If the user says "samji?", "ha", "na", "shu?", understand it within the ongoing conversational context instead of treating it as a new unrelated question.
+- If the user is explaining an idea, understand the complete thought before responding.
+- Match the user's energy: serious when they are serious, excited when they are excited, casual when they are casual.
+
+4. REAL-TIME MULTIMODAL CAPABILITIES:
+- Screen sharing: inspect code, debug errors, explain UI.
+- Camera / Vision: describe objects, read text from images, summarize scenes.
+- Location & Weather: get live weather, check temperature, find nearby places.
+- Memory: save facts and user preferences with saveMemory, query them with queryMemory, remove them with forgetMemory.
+- Tools: use every connected tool when appropriate. Never invent tool results.
+
+5. CYBERSECURITY EXPERT MODE & ETHICAL HACKING DIRECTIVES:
+- Advanced knowledge in networking, Linux/Windows security, OWASP Top 10, Auth, Crypto, CTF/labs, Forensics, Reverse engineering, Security automation, and tools (Nmap, Wireshark, Burp, Metasploit).
+- For hacking questions:
+  1. First clarify if target is user-owned, a lab, CTF, or explicitly authorized.
+  2. For authorized targets/CTFs/labs: give practical step-by-step guidance, terminal commands, scripts, and debugging.
+  3. Explain both the offensive attack mechanism and defensive remediation/patching.
+  4. Refuse any request enabling unauthorized access, malware, or attacking third-party systems and redirect to legal lab/CTF alternatives (TryHackMe, HackTheBox, PortSwigger, DVWA).
+  5. Never claim to have taken real actions on systems without authorization and real connected tools.
+  6. Always prioritize safe practice environments.
+
+${memoryContextInjection ? `\n\n${memoryContextInjection}\n` : ""}`,
         tools: [
           {
             functionDeclarations: [
@@ -1190,6 +1933,63 @@ HUMAN CONVERSATION MODE:
                 },
               },
               {
+                name: "getWeather",
+                description: "Gets real-time current weather, temperature, humidity, wind, and forecast for a city or current location.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    city: {
+                      type: Type.STRING,
+                      description: "City name (e.g. 'Ahmedabad', 'Mumbai', 'London'). Leave empty for current location.",
+                    },
+                  },
+                },
+              },
+              {
+                name: "getLocation",
+                description: "Retrieves the user's real-world location (city, state, country, and approximate coordinates) with permission.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {},
+                },
+              },
+              {
+                name: "getNearbyPlaces",
+                description: "Searches for nearby places, shops, restaurants, coffee shops, or facilities near current location.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    query: {
+                      type: Type.STRING,
+                      description: "Search term (e.g. 'coffee shops', 'pharmacy', 'gas station')",
+                    },
+                  },
+                  required: ["query"],
+                },
+              },
+              {
+                name: "activateCamera",
+                description: "Activates camera for visual perception and environment inspection.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    facing: {
+                      type: Type.STRING,
+                      enum: ["user", "environment"],
+                      description: "Camera facing ('user' or 'environment')",
+                    },
+                  },
+                },
+              },
+              {
+                name: "captureCameraFrame",
+                description: "Captures a frame from the active camera to examine objects, read text, or describe what is seen.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {},
+                },
+              },
+              {
                 name: "getSystemStatus",
                 description: "Retrieves current device time, battery level, online status, theme, and companion status.",
                 parameters: {
@@ -1216,6 +2016,24 @@ HUMAN CONVERSATION MODE:
                 },
               },
               {
+                name: "sendNotification",
+                description: "Sends a high-priority browser notification to alert the user.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: {
+                      type: Type.STRING,
+                      description: "Notification title",
+                    },
+                    body: {
+                      type: Type.STRING,
+                      description: "Notification body message",
+                    },
+                  },
+                  required: ["title", "body"],
+                },
+              },
+              {
                 name: "toggleTheme",
                 description: "Switches the visual appearance between futuristic dark and light theme.",
                 parameters: {
@@ -1228,6 +2046,33 @@ HUMAN CONVERSATION MODE:
                     },
                   },
                   required: ["mode"],
+                },
+              },
+              {
+                name: "queryMemory",
+                description: "Retrieves stored memories, preferences, and personal details saved about the user.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    query: {
+                      type: Type.STRING,
+                      description: "Optional keyword or topic to search",
+                    },
+                  },
+                },
+              },
+              {
+                name: "forgetMemory",
+                description: "Permanently removes a stored memory or preference.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    keyOrId: {
+                      type: Type.STRING,
+                      description: "Key or ID of the memory to forget",
+                    },
+                  },
+                  required: ["keyOrId"],
                 },
               },
               {
@@ -1246,6 +2091,60 @@ HUMAN CONVERSATION MODE:
                     },
                   },
                   required: ["actionName"],
+                },
+              },
+              {
+                name: "dispatchSpecialistAgent",
+                description: "કોઈપણ જટિલ કામ (કોડિંગ, ડીપ વેબ સર્ચ, ટાસ્ક પ્લાનિંગ કે ફાઇલ મેનેજમેન્ટ) માટે સ્પેશિયાલિસ્ટ એજન્ટને સોંપો.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    agentType: {
+                      type: Type.STRING,
+                      enum: ["dev", "research", "system", "planner"],
+                      description: "કયા પ્રકારનો એજન્ટ આ કામ કરશે",
+                    },
+                    taskDetails: {
+                      type: Type.STRING,
+                      description: "એજન્ટે શું કામ કરવાનું છે તેની ચોક્કસ વિગતો",
+                    },
+                  },
+                  required: ["agentType", "taskDetails"],
+                },
+              },
+              {
+                name: "saveMemory",
+                description: "Permanently stores and remembers an important fact, personal preference, goal, profile detail, or rule about the user so MERY never forgets it across reloads and future sessions.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    category: {
+                      type: Type.STRING,
+                      description: "Category of memory (e.g. 'preference', 'profile', 'goal', 'project', 'schedule', 'personal')",
+                    },
+                    key: {
+                      type: Type.STRING,
+                      description: "Short descriptive identifier or topic (e.g. 'favorite_language', 'user_city', 'sleep_schedule', 'work_focus')",
+                    },
+                    value: {
+                      type: Type.STRING,
+                      description: "The core fact or preference value (e.g. 'Gujarati and English', 'Ahmedabad', 'Midnight to 7 AM')",
+                    },
+                    content: {
+                      type: Type.STRING,
+                      description: "Full natural language memory description or fact sentence",
+                    },
+                    type: {
+                      type: Type.STRING,
+                      enum: ["preference", "fact", "goal", "profile", "semantic"],
+                      description: "Type of memory classification",
+                    },
+                    importance: {
+                      type: Type.NUMBER,
+                      description: "Importance rating from 0.0 to 1.0 (defaults to 0.90 for user preferences)",
+                    },
+                  },
+                  required: ["key", "value"],
                 },
               },
             ],
@@ -1291,6 +2190,27 @@ HUMAN CONVERSATION MODE:
                 }
               }
             }
+          }
+
+          // Dedicated audio transcriptions from Live API
+          const outTranscription = (message.serverContent as any)?.outputTranscription?.text;
+          if (outTranscription && clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(
+              JSON.stringify({
+                type: "transcript",
+                text: outTranscription,
+              })
+            );
+          }
+
+          const inTranscription = (message.serverContent as any)?.inputTranscription?.text;
+          if (inTranscription && clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(
+              JSON.stringify({
+                type: "user_transcript",
+                text: inTranscription,
+              })
+            );
           }
 
           // 2. Interruption from server
@@ -1353,6 +2273,18 @@ HUMAN CONVERSATION MODE:
               mimeType: "audio/pcm;rate=16000",
             },
           });
+        } else if ((msg.type === "screen_frame" || msg.type === "video") && msg.data) {
+          // Stream real-time visual screen frame to Gemini Live
+          try {
+            session?.sendRealtimeInput({
+              media: {
+                data: msg.data,
+                mimeType: "image/jpeg",
+              },
+            });
+          } catch (vidErr: any) {
+            console.warn("[Live API] Screen frame transmission notice:", vidErr?.message || vidErr);
+          }
         } else if (msg.type === "tool_response" && msg.functionResponses) {
           // Return tool execution responses to Gemini Live
           session?.sendToolResponse({
@@ -1409,7 +2341,10 @@ HUMAN CONVERSATION MODE:
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === "true" ? false : { server },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

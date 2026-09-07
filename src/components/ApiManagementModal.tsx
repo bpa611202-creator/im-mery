@@ -18,12 +18,20 @@ import {
   RefreshCw,
   Zap,
   Languages,
+  Monitor,
+  Camera,
+  Video,
+  Play,
+  Square,
+  Settings2,
+  HelpCircle,
 } from 'lucide-react';
-import { ProviderConfig, ProviderCategory, VoiceSettings, StructuredLog, LogLevel } from '../types';
+import { ProviderConfig, ProviderCategory, VoiceSettings, StructuredLog, LogLevel, ScreenShareSettings, ScreenResolution } from '../types';
 import { providerManager } from '../utils/providerManager';
 import { logger } from '../utils/logger';
 import { voiceService } from '../utils/audio';
 import { stateManager, SpokenLanguage } from '../modules/StateManager';
+import { screenShareService } from '../modules/ScreenShareService';
 
 interface ApiManagementModalProps {
   isOpen: boolean;
@@ -31,9 +39,13 @@ interface ApiManagementModalProps {
 }
 
 export const ApiManagementModal: React.FC<ApiManagementModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'providers' | 'voice' | 'logs'>('providers');
+  const [activeTab, setActiveTab] = useState<'providers' | 'voice' | 'screen' | 'logs'>('providers');
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(providerManager.getVoiceSettings());
+  const [screenSettings, setScreenSettings] = useState<ScreenShareSettings>(screenShareService.getSettings());
+  const [screenStats, setScreenStats] = useState(screenShareService.getStats());
+  const [snapshotPreview, setSnapshotPreview] = useState<string | null>(screenShareService.getLatestSnapshot());
+  const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
   const [editingKeys, setEditingKeys] = useState<Record<string, string>>({});
   const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -62,10 +74,17 @@ export const ApiManagementModal: React.FC<ApiManagementModalProps> = ({ isOpen, 
       setCurrentLanguage(lang);
     });
 
+    const unsubScreen = screenShareService.subscribe(() => {
+      setScreenSettings(screenShareService.getSettings());
+      setScreenStats(screenShareService.getStats());
+      setSnapshotPreview(screenShareService.getLatestSnapshot());
+    });
+
     return () => {
       unsubProv();
       unsubLog();
       unsubLang();
+      unsubScreen();
     };
   }, [isOpen]);
 
@@ -199,6 +218,21 @@ export const ApiManagementModal: React.FC<ApiManagementModalProps> = ({ isOpen, 
             >
               <Volume2 className="w-3.5 h-3.5" />
               Voice Settings
+            </button>
+            <button
+              id="tab-screen-sharing"
+              onClick={() => setActiveTab('screen')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                activeTab === 'screen'
+                  ? 'bg-[#9D7BFF]/20 text-[#E7B7A5] border border-[#9D7BFF]/40'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Monitor className={`w-3.5 h-3.5 ${screenStats.isSharing ? 'text-emerald-400 animate-pulse' : ''}`} />
+              Screen Sharing
+              {screenStats.isSharing && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              )}
             </button>
             <button
               id="tab-system-logs"
@@ -588,6 +622,313 @@ export const ApiManagementModal: React.FC<ApiManagementModalProps> = ({ isOpen, 
                       <div className="text-[11px] text-white/50">{lang.desc}</div>
                     </button>
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'screen' && (
+            <div className="space-y-6">
+              {/* Screen Sharing Master Status Card */}
+              <div className="p-5 rounded-2xl bg-[#150F28] border border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center border transition-all ${
+                      screenStats.isSharing
+                        ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
+                        : 'bg-white/5 border-white/10 text-white/50'
+                    }`}
+                  >
+                    <Monitor className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-white">MERY Screen Vision & Display Stream</h3>
+                      <span
+                        className={`text-[10px] font-telemetry px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                          screenStats.isSharing
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold'
+                            : 'bg-white/10 text-white/50'
+                        }`}
+                      >
+                        {screenStats.isSharing ? 'Live Streaming' : 'Inactive'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-white/50 mt-0.5">
+                      Stream your active display or application window so MERY can visually analyze code, designs, and content in real-time.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                  {screenStats.isSharing ? (
+                    <>
+                      <button
+                        id="btn-take-snapshot"
+                        onClick={() => {
+                          setIsCapturingSnapshot(true);
+                          const snap = screenShareService.captureSingleFrame();
+                          if (snap) setSnapshotPreview(snap);
+                          setTimeout(() => setIsCapturingSnapshot(false), 300);
+                        }}
+                        disabled={isCapturingSnapshot}
+                        className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 text-xs font-medium transition-all flex items-center gap-1.5 border border-white/10"
+                        title="Capture fresh screen snapshot"
+                      >
+                        <Camera className={`w-3.5 h-3.5 ${isCapturingSnapshot ? 'animate-spin' : ''}`} />
+                        <span>Snapshot</span>
+                      </button>
+                      <button
+                        id="btn-stop-screen-share"
+                        onClick={() => screenShareService.stopScreenShare()}
+                        className="flex-1 md:flex-initial px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-rose-950/20"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-rose-300" />
+                        Stop Sharing
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      id="btn-start-screen-share"
+                      onClick={() => screenShareService.startScreenShare()}
+                      className="flex-1 md:flex-initial px-4 py-2 rounded-xl bg-gradient-to-r from-[#9D7BFF] to-[#E7B7A5] hover:opacity-95 text-[#0A0614] text-xs font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-[#0A0614]" />
+                      Start Screen Sharing
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Error Notice if any */}
+              {screenStats.lastError && (
+                <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-3">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <div className="font-semibold text-rose-300">Display Capture Notice</div>
+                    <div className="text-white/70">{screenStats.lastError}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Live Preview Display Box */}
+              <div className="p-5 rounded-2xl bg-[#0F0A1F] border border-white/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-telemetry uppercase tracking-wider text-white/70 flex items-center gap-2">
+                    <Video className="w-3.5 h-3.5 text-[#9D7BFF]" />
+                    Visual Stream Monitor
+                  </h4>
+                  {screenStats.isSharing && (
+                    <div className="flex items-center gap-3 text-[11px] font-mono text-white/60">
+                      <span>Res: <strong className="text-emerald-400">{screenStats.activeResolution}</strong></span>
+                      <span>FPS: <strong className="text-cyan-400">{screenSettings.frameRate}</strong></span>
+                      <span>Frames: <strong className="text-purple-300">{screenStats.framesSent}</strong></span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative w-full h-56 rounded-xl bg-[#07040D] border border-white/10 flex items-center justify-center overflow-hidden">
+                  {screenStats.isSharing && snapshotPreview ? (
+                    <div className="relative w-full h-full flex items-center justify-center">
+                      <img
+                        src={`data:image/jpeg;base64,${snapshotPreview}`}
+                        alt="Active Screen Feed"
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute top-2.5 left-2.5 px-2 py-1 rounded-md bg-black/70 backdrop-blur-md border border-white/10 text-[10px] font-telemetry text-emerald-400 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        FEED TRANSMITTING TO MERY
+                      </div>
+                      <div className="absolute bottom-2.5 right-2.5 px-2 py-1 rounded-md bg-black/70 backdrop-blur-md border border-white/10 text-[10px] font-mono text-white/70">
+                        {screenStats.activeResolution} @ {screenSettings.frameRate} FPS
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center p-6 space-y-2">
+                      <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/30 mb-1">
+                        <Monitor className="w-6 h-6" />
+                      </div>
+                      <div className="text-xs font-medium text-white/70">No Screen Feed Active</div>
+                      <p className="text-[11px] text-white/40 max-w-sm">
+                        Click "Start Screen Sharing" above or in the main companion view to grant screen capture and share visual context with MERY.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Configuration Settings Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Resolution Setting */}
+                <div className="p-4 rounded-2xl bg-[#150F28] border border-white/10 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-white/80">Stream Resolution</span>
+                    <span className="text-[10px] font-telemetry uppercase text-[#E7B7A5]">
+                      {screenSettings.resolution}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        { id: '480p' as ScreenResolution, label: '480p', desc: 'Fast / Light' },
+                        { id: '720p' as ScreenResolution, label: '720p', desc: 'Recommended' },
+                        { id: '1080p' as ScreenResolution, label: '1080p', desc: 'High Detail' },
+                      ] as const
+                    ).map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => screenShareService.saveSettings({ resolution: r.id })}
+                        className={`p-2 rounded-xl text-center border transition-all ${
+                          screenSettings.resolution === r.id
+                            ? 'bg-[#9D7BFF]/20 border-[#9D7BFF] text-white shadow-sm'
+                            : 'bg-white/5 border-white/5 text-white/60 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{r.label}</div>
+                        <div className="text-[10px] text-white/40">{r.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-white/40">
+                    Higher resolutions provide sharper clarity for code and terminal text; 720p is optimized for instant AI turnarounds.
+                  </p>
+                </div>
+
+                {/* Frame Rate Setting */}
+                <div className="p-4 rounded-2xl bg-[#150F28] border border-white/10 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-white/80">Transmission Rate</span>
+                    <span className="text-[10px] font-telemetry uppercase text-cyan-400">
+                      {screenSettings.frameRate} FPS
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { val: 0.5, label: '0.5 FPS', desc: 'Every 2s' },
+                      { val: 1.0, label: '1.0 FPS', desc: 'Recommended' },
+                      { val: 2.0, label: '2.0 FPS', desc: 'Smooth' },
+                    ].map((fps) => (
+                      <button
+                        key={fps.val}
+                        onClick={() => screenShareService.saveSettings({ frameRate: fps.val })}
+                        className={`p-2 rounded-xl text-center border transition-all ${
+                          screenSettings.frameRate === fps.val
+                            ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-sm'
+                            : 'bg-white/5 border-white/5 text-white/60 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{fps.label}</div>
+                        <div className="text-[10px] text-white/40">{fps.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-white/40">
+                    Controls how frequently visual frames are delivered into MERY's neural context during voice sessions.
+                  </p>
+                </div>
+
+                {/* Image Quality Slider */}
+                <div className="p-4 rounded-2xl bg-[#150F28] border border-white/10 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-white/80">JPEG Compression Quality</span>
+                    <span className="text-[10px] font-telemetry uppercase text-purple-300 font-mono">
+                      {Math.round(screenSettings.jpegQuality * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="0.9"
+                    step="0.05"
+                    value={screenSettings.jpegQuality}
+                    onChange={(e) =>
+                      screenShareService.saveSettings({ jpegQuality: parseFloat(e.target.value) })
+                    }
+                    className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#9D7BFF]"
+                  />
+                  <div className="flex justify-between text-[10px] text-white/40 font-mono">
+                    <span>50% (Compact)</span>
+                    <span>70% (Standard)</span>
+                    <span>90% (Lossless-like)</span>
+                  </div>
+                </div>
+
+                {/* Toggles */}
+                <div className="p-4 rounded-2xl bg-[#150F28] border border-white/10 space-y-3 flex flex-col justify-center">
+                  <label className="flex items-center justify-between cursor-pointer group">
+                    <div className="space-y-0.5 pr-2">
+                      <div className="text-xs font-medium text-white/80 group-hover:text-white">
+                        Auto-Prompt on Live Voice Start
+                      </div>
+                      <div className="text-[10px] text-white/40">
+                        Automatically request screen sharing when establishing Gemini Live link
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={screenSettings.autoShareOnLiveStart}
+                      onChange={(e) =>
+                        screenShareService.saveSettings({ autoShareOnLiveStart: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#9D7BFF] focus:ring-[#9D7BFF]/40 cursor-pointer"
+                    />
+                  </label>
+
+                  <div className="border-t border-white/5 pt-2">
+                    <label className="flex items-center justify-between cursor-pointer group">
+                      <div className="space-y-0.5 pr-2">
+                        <div className="text-xs font-medium text-white/80 group-hover:text-white">
+                          Capture System Tab Audio
+                        </div>
+                        <div className="text-[10px] text-white/40">
+                          Include tab audio stream with display when sharing media
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={screenSettings.sendAudioWithScreen}
+                        onChange={(e) =>
+                          screenShareService.saveSettings({ sendAudioWithScreen: e.target.checked })
+                        }
+                        className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#9D7BFF] focus:ring-[#9D7BFF]/40 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desktop Iframe & Browser Permission Helper Card */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/30 to-[#120D24] border border-purple-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-white/90 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    Embedded Preview & Browser Permissions
+                  </div>
+                  <p className="text-[11px] text-white/50 max-w-xl">
+                    Browser security requires direct user interaction to grant display capture. If your browser restricts screen capture in the embedded preview iframe, launch MERY in a standalone tab with full desktop privileges.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    id="btn-open-allow-guide-from-settings"
+                    onClick={() => screenShareService.requestAllowModal()}
+                    className="px-3 py-1.5 rounded-xl bg-[#9D7BFF]/20 hover:bg-[#9D7BFF]/30 text-[#E7B7A5] text-xs font-medium transition-all flex items-center gap-1.5 border border-[#9D7BFF]/40 whitespace-nowrap shrink-0"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5 text-[#E7B7A5]" />
+                    Permissions Guide
+                  </button>
+                  <button
+                    id="btn-open-tab-for-screen"
+                    onClick={() => {
+                      const url = new URL(window.location.href);
+                      url.searchParams.set('autoshare', '1');
+                      window.open(url.toString(), '_blank');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/90 text-xs font-medium transition-all flex items-center gap-1.5 border border-white/10 whitespace-nowrap shrink-0"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-cyan-300" />
+                    Open in New Tab
+                  </button>
                 </div>
               </div>
             </div>

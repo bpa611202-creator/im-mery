@@ -140,19 +140,19 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className="relative w-full max-w-4xl max-h-[90vh] bg-[#0E0A1B]/95 border border-[#E7B7A5]/25 rounded-3xl p-5 sm:p-7 shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_40px_rgba(157,123,255,0.15)] backdrop-blur-2xl flex flex-col z-10 overflow-hidden text-[#F3EFFA]"
+            className="relative w-full max-w-4xl max-h-[90vh] bg-[#020204]/95 border border-[#00A3FF]/25 rounded-3xl p-5 sm:p-7 shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_40px_rgba(0,163,255,0.15)] backdrop-blur-2xl flex flex-col z-10 overflow-hidden text-[#FFFFFF]"
           >
             {/* Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-[#E7B7A5]/15">
+            <div className="flex items-center justify-between pb-4 border-b border-[#00A3FF]/15">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-gradient-to-br from-[#9D7BFF]/30 to-[#E7B7A5]/30 border border-[#E7B7A5]/30 text-[#E7B7A5]">
+                <div className="p-2.5 rounded-2xl bg-gradient-to-br from-[#0066FF]/30 to-[#00A3FF]/30 border border-[#00A3FF]/30 text-[#00A3FF]">
                   <Sliders className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="font-display font-semibold text-lg text-[#F3EFFA]">
+                  <h2 className="font-display font-semibold text-lg text-[#FFFFFF]">
                     M4 System Controller
                   </h2>
-                  <p className="text-xs text-[#E7B7A5] flex items-center gap-1.5">
+                  <p className="text-xs text-[#00A3FF] flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                     Live Computer Interface · Voice Controlled & Hands-Free
                   </p>
@@ -168,12 +168,12 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
             </div>
 
             {/* Quick Global Sliders / Hardware Strip */}
-            <div className="my-4 p-4 rounded-2xl bg-[#140F24]/80 border border-[#9D7BFF]/20 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+            <div className="my-4 p-4 rounded-2xl bg-[#140F24]/80 border border-[#0066FF]/20 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
               {/* Media Controls */}
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleToggleMedia}
-                  className="p-2.5 rounded-xl bg-[#9D7BFF]/25 text-[#E7B7A5] hover:bg-[#9D7BFF]/40 transition-all"
+                  className="p-2.5 rounded-xl bg-[#0066FF]/25 text-[#00A3FF] hover:bg-[#0066FF]/40 transition-all"
                   title={mediaState.isPlaying ? 'Pause ambient focus audio' : 'Play ambient focus audio'}
                 >
                   {mediaState.isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -182,7 +182,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                   <div className="text-xs font-semibold text-white/90 truncate">
                     {mediaState.currentTrack}
                   </div>
-                  <div className="text-[10px] text-[#E7B7A5]/80 font-telemetry">
+                  <div className="text-[10px] text-[#00A3FF]/80 font-telemetry">
                     {mediaState.isPlaying ? 'PLAYING 432Hz' : 'AUDIO PAUSED'}
                   </div>
                 </div>
@@ -190,11 +190,11 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
 
               {/* Volume Slider */}
               <div className="flex items-center gap-2.5">
-                <Volume2 className="w-4 h-4 text-[#C6A0FF] shrink-0" />
+                <Volume2 className="w-4 h-4 text-[#38BDF8] shrink-0" />
                 <div className="flex-1">
                   <div className="flex justify-between text-[11px] font-telemetry mb-1 text-white/70">
                     <span>AUDIO VOL</span>
-                    <span className="text-[#E7B7A5]">{mediaState.volume}%</span>
+                    <span className="text-[#00A3FF]">{mediaState.volume}%</span>
                   </div>
                   <input
                     type="range"
@@ -202,18 +202,18 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                     max="100"
                     value={mediaState.volume}
                     onChange={(e) => systemController.setVolume(Number(e.target.value))}
-                    className="w-full accent-[#E7B7A5] h-1.5 rounded-lg bg-black/40 cursor-pointer"
+                    className="w-full accent-[#00A3FF] h-1.5 rounded-lg bg-black/40 cursor-pointer"
                   />
                 </div>
               </div>
 
               {/* Brightness Tint Slider */}
               <div className="flex items-center gap-2.5">
-                <Sun className="w-4 h-4 text-[#E7B7A5] shrink-0" />
+                <Sun className="w-4 h-4 text-[#00A3FF] shrink-0" />
                 <div className="flex-1">
                   <div className="flex justify-between text-[11px] font-telemetry mb-1 text-white/70">
                     <span>DISPLAY LEVEL</span>
-                    <span className="text-[#C6A0FF]">{mediaState.brightness}%</span>
+                    <span className="text-[#38BDF8]">{mediaState.brightness}%</span>
                   </div>
                   <input
                     type="range"
@@ -221,7 +221,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                     max="100"
                     value={mediaState.brightness}
                     onChange={(e) => systemController.setBrightness(Number(e.target.value))}
-                    className="w-full accent-[#9D7BFF] h-1.5 rounded-lg bg-black/40 cursor-pointer"
+                    className="w-full accent-[#0066FF] h-1.5 rounded-lg bg-black/40 cursor-pointer"
                   />
                 </div>
               </div>
@@ -233,7 +233,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                 onClick={() => setActiveTab('apps')}
                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
                   activeTab === 'apps'
-                    ? 'bg-gradient-to-r from-[#9D7BFF]/30 to-[#E7B7A5]/30 text-white border border-[#E7B7A5]/40 shadow-[0_0_15px_rgba(157,123,255,0.2)]'
+                    ? 'bg-gradient-to-r from-[#0066FF]/30 to-[#00A3FF]/30 text-white border border-[#00A3FF]/40 shadow-[0_0_15px_rgba(0,163,255,0.2)]'
                     : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
               >
@@ -245,7 +245,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                 onClick={() => setActiveTab('files')}
                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
                   activeTab === 'files'
-                    ? 'bg-gradient-to-r from-[#9D7BFF]/30 to-[#E7B7A5]/30 text-white border border-[#E7B7A5]/40 shadow-[0_0_15px_rgba(157,123,255,0.2)]'
+                    ? 'bg-gradient-to-r from-[#0066FF]/30 to-[#00A3FF]/30 text-white border border-[#00A3FF]/40 shadow-[0_0_15px_rgba(0,163,255,0.2)]'
                     : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
               >
@@ -257,7 +257,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                 onClick={() => setActiveTab('reminders')}
                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
                   activeTab === 'reminders'
-                    ? 'bg-gradient-to-r from-[#9D7BFF]/30 to-[#E7B7A5]/30 text-white border border-[#E7B7A5]/40 shadow-[0_0_15px_rgba(157,123,255,0.2)]'
+                    ? 'bg-gradient-to-r from-[#0066FF]/30 to-[#00A3FF]/30 text-white border border-[#00A3FF]/40 shadow-[0_0_15px_rgba(0,163,255,0.2)]'
                     : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
               >
@@ -269,7 +269,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                 onClick={() => setActiveTab('smarthome')}
                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
                   activeTab === 'smarthome'
-                    ? 'bg-gradient-to-r from-[#9D7BFF]/30 to-[#E7B7A5]/30 text-white border border-[#E7B7A5]/40 shadow-[0_0_15px_rgba(157,123,255,0.2)]'
+                    ? 'bg-gradient-to-r from-[#0066FF]/30 to-[#00A3FF]/30 text-white border border-[#00A3FF]/40 shadow-[0_0_15px_rgba(0,163,255,0.2)]'
                     : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
               >
@@ -292,12 +292,12 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search the web or launch a site via MERY..."
-                        className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-[#161128] border border-white/10 text-white placeholder-white/40 focus:border-[#E7B7A5]/50 focus:outline-none"
+                        className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-[#081426] border border-white/10 text-white placeholder-white/40 focus:border-[#00A3FF]/50 focus:outline-none"
                       />
                     </div>
                     <button
                       type="submit"
-                      className="px-4 py-2 rounded-xl text-xs font-medium bg-[#9D7BFF]/30 text-[#E7B7A5] hover:bg-[#9D7BFF]/40 border border-[#E7B7A5]/30 transition-all flex items-center gap-1.5"
+                      className="px-4 py-2 rounded-xl text-xs font-medium bg-[#0066FF]/30 text-[#00A3FF] hover:bg-[#0066FF]/40 border border-[#00A3FF]/30 transition-all flex items-center gap-1.5"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       Search
@@ -308,7 +308,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                     {apps.map((app, idx) => (
                       <div
                         key={`${app.id}_${idx}`}
-                        className="p-3.5 rounded-2xl bg-[#150F26]/70 border border-white/10 flex items-center justify-between hover:border-[#E7B7A5]/30 transition-all"
+                        className="p-3.5 rounded-2xl bg-[#081426]/70 border border-white/10 flex items-center justify-between hover:border-[#00A3FF]/30 transition-all"
                       >
                         <div className="flex items-center gap-3">
                           <div className={`p-2.5 rounded-xl border ${
@@ -344,7 +344,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                           ) : (
                             <button
                               onClick={() => handleLaunchApp(app)}
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-telemetry bg-[#9D7BFF]/25 text-[#E7B7A5] hover:bg-[#9D7BFF]/40 border border-[#E7B7A5]/30 transition-all"
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-telemetry bg-[#0066FF]/25 text-[#00A3FF] hover:bg-[#0066FF]/40 border border-[#00A3FF]/30 transition-all"
                             >
                               LAUNCH
                             </button>
@@ -365,11 +365,11 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                       value={newFileName}
                       onChange={(e) => setNewFileName(e.target.value)}
                       placeholder="Create new file (e.g. project-notes.md, task-list.json)..."
-                      className="flex-1 px-4 py-2 text-xs rounded-xl bg-[#161128] border border-white/10 text-white placeholder-white/40 focus:border-[#E7B7A5]/50 focus:outline-none"
+                      className="flex-1 px-4 py-2 text-xs rounded-xl bg-[#081426] border border-white/10 text-white placeholder-white/40 focus:border-[#00A3FF]/50 focus:outline-none"
                     />
                     <button
                       type="submit"
-                      className="px-4 py-2 rounded-xl text-xs font-medium bg-[#9D7BFF]/30 text-[#E7B7A5] hover:bg-[#9D7BFF]/40 border border-[#E7B7A5]/30 transition-all flex items-center gap-1.5"
+                      className="px-4 py-2 rounded-xl text-xs font-medium bg-[#0066FF]/30 text-[#00A3FF] hover:bg-[#0066FF]/40 border border-[#00A3FF]/30 transition-all flex items-center gap-1.5"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Create File
@@ -380,10 +380,10 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                     {files.map((file, idx) => (
                       <div
                         key={`${file.id}_${idx}`}
-                        className="p-3 rounded-2xl bg-[#150F26]/70 border border-white/10 flex items-center justify-between hover:border-[#E7B7A5]/30 transition-all"
+                        className="p-3 rounded-2xl bg-[#081426]/70 border border-white/10 flex items-center justify-between hover:border-[#00A3FF]/30 transition-all"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-xl bg-[#9D7BFF]/15 border border-[#9D7BFF]/25 text-[#C6A0FF]">
+                          <div className="p-2 rounded-xl bg-[#0066FF]/15 border border-[#0066FF]/25 text-[#38BDF8]">
                             {file.type === 'code' ? (
                               <FileCode className="w-4 h-4" />
                             ) : file.type === 'audio' ? (
@@ -422,7 +422,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {/* Reminders Section */}
                   <div className="space-y-3">
-                    <h3 className="text-xs font-telemetry uppercase tracking-wider text-[#E7B7A5] flex items-center gap-1.5">
+                    <h3 className="text-xs font-telemetry uppercase tracking-wider text-[#00A3FF] flex items-center gap-1.5">
                       <Bell className="w-3.5 h-3.5" /> Scheduled Reminders
                     </h3>
 
@@ -432,11 +432,11 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                         value={newReminderTitle}
                         onChange={(e) => setNewReminderTitle(e.target.value)}
                         placeholder="Add reminder..."
-                        className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-[#161128] border border-white/10 text-white placeholder-white/40 focus:border-[#E7B7A5]/50 focus:outline-none"
+                        className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-[#081426] border border-white/10 text-white placeholder-white/40 focus:border-[#00A3FF]/50 focus:outline-none"
                       />
                       <button
                         type="submit"
-                        className="px-3 py-1.5 rounded-xl text-xs bg-[#9D7BFF]/30 text-[#E7B7A5] border border-[#E7B7A5]/30 hover:bg-[#9D7BFF]/40"
+                        className="px-3 py-1.5 rounded-xl text-xs bg-[#0066FF]/30 text-[#00A3FF] border border-[#00A3FF]/30 hover:bg-[#0066FF]/40"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -446,7 +446,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                       {reminders.map((rem, idx) => (
                         <div
                           key={`${rem.id}_${idx}`}
-                          className="p-3 rounded-xl bg-[#150F26]/70 border border-white/10 flex items-center justify-between"
+                          className="p-3 rounded-xl bg-[#081426]/70 border border-white/10 flex items-center justify-between"
                         >
                           <div className="flex items-center gap-2.5">
                             <button
@@ -467,7 +467,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                               >
                                 {rem.title}
                               </div>
-                              <div className="text-[10px] font-telemetry text-[#E7B7A5]">
+                              <div className="text-[10px] font-telemetry text-[#00A3FF]">
                                 {rem.timeString}
                               </div>
                             </div>
@@ -485,7 +485,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
 
                   {/* Notes Section */}
                   <div className="space-y-3">
-                    <h3 className="text-xs font-telemetry uppercase tracking-wider text-[#C6A0FF] flex items-center gap-1.5">
+                    <h3 className="text-xs font-telemetry uppercase tracking-wider text-[#38BDF8] flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5" /> MERY Quick Notes
                     </h3>
 
@@ -495,18 +495,18 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                         value={newNoteTitle}
                         onChange={(e) => setNewNoteTitle(e.target.value)}
                         placeholder="Note title..."
-                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-[#161128] border border-white/10 text-white placeholder-white/40 focus:border-[#E7B7A5]/50 focus:outline-none"
+                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-[#081426] border border-white/10 text-white placeholder-white/40 focus:border-[#00A3FF]/50 focus:outline-none"
                       />
                       <textarea
                         value={newNoteContent}
                         onChange={(e) => setNewNoteContent(e.target.value)}
                         placeholder="Note content..."
                         rows={2}
-                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-[#161128] border border-white/10 text-white placeholder-white/40 focus:border-[#E7B7A5]/50 focus:outline-none resize-none"
+                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-[#081426] border border-white/10 text-white placeholder-white/40 focus:border-[#00A3FF]/50 focus:outline-none resize-none"
                       />
                       <button
                         type="submit"
-                        className="w-full py-1.5 rounded-xl text-xs font-medium bg-[#9D7BFF]/30 text-[#E7B7A5] border border-[#E7B7A5]/30 hover:bg-[#9D7BFF]/40 flex items-center justify-center gap-1.5"
+                        className="w-full py-1.5 rounded-xl text-xs font-medium bg-[#0066FF]/30 text-[#00A3FF] border border-[#00A3FF]/30 hover:bg-[#0066FF]/40 flex items-center justify-center gap-1.5"
                       >
                         <Plus className="w-3.5 h-3.5" /> Save Note
                       </button>
@@ -516,7 +516,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                       {notes.map((note, idx) => (
                         <div
                           key={`${note.id}_${idx}`}
-                          className="p-3 rounded-xl bg-[#150F26]/70 border border-white/10 relative group"
+                          className="p-3 rounded-xl bg-[#081426]/70 border border-white/10 relative group"
                         >
                           <div className="flex items-center justify-between mb-1">
                             <h4 className="text-xs font-semibold text-white/90">
@@ -532,7 +532,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                           <p className="text-xs text-white/70 whitespace-pre-wrap">
                             {note.content}
                           </p>
-                          <div className="text-[10px] font-telemetry text-[#E7B7A5]/70 mt-1">
+                          <div className="text-[10px] font-telemetry text-[#00A3FF]/70 mt-1">
                             {note.updatedAt}
                           </div>
                         </div>
@@ -552,13 +552,13 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                     {devices.map((device, idx) => (
                       <div
                         key={`${device.id}_${idx}`}
-                        className="p-4 rounded-2xl bg-[#150F26]/70 border border-white/10 flex items-center justify-between"
+                        className="p-4 rounded-2xl bg-[#081426]/70 border border-white/10 flex items-center justify-between"
                       >
                         <div>
                           <div className="text-xs font-semibold text-white/90">
                             {device.name}
                           </div>
-                          <div className="text-[11px] font-telemetry text-[#E7B7A5]">
+                          <div className="text-[11px] font-telemetry text-[#00A3FF]">
                             {device.value}
                           </div>
                         </div>

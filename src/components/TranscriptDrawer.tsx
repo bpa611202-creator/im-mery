@@ -1,6 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Volume2, Trash2, Send, CornerDownLeft, Sparkles, MessageSquare } from 'lucide-react';
+import {
+  X,
+  Volume2,
+  Trash2,
+  Send,
+  Sparkles,
+  MessageSquare,
+  Terminal,
+  Activity,
+  CornerDownLeft,
+} from 'lucide-react';
 import { ChatMessage } from '../types';
 
 interface TranscriptDrawerProps {
@@ -14,6 +24,13 @@ interface TranscriptDrawerProps {
   isThinking: boolean;
 }
 
+const QUICK_SPARKS = [
+  'Status report on system capabilities',
+  'What have you remembered about me?',
+  'Search the web for latest AI news',
+  'Tell me an interesting thought today',
+];
+
 export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
   isOpen,
   onClose,
@@ -25,6 +42,17 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
   isThinking,
 }) => {
   const [text, setText] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        inputRef.current?.focus();
+      }, 150);
+    }
+  }, [isOpen, messages, isThinking]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,17 +61,22 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
     setText('');
   };
 
+  const handleSparkClick = (spark: string) => {
+    if (isThinking) return;
+    onSendMessage(spark);
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
-        <div id="transcript-history-drawer" className="fixed inset-0 z-50 flex justify-end">
+        <div id="neural-chat-box-drawer" className="fixed inset-0 z-50 flex justify-end">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/75 backdrop-blur-md"
+            className="fixed inset-0 bg-black/80 backdrop-blur-md"
           />
 
           {/* Drawer Container */}
@@ -52,19 +85,26 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-            className="relative w-full max-w-lg h-full bg-[#0C081A] border-l border-[#E7B7A5]/25 p-5 sm:p-6 flex flex-col justify-between shadow-2xl z-10"
+            className="relative w-full max-w-xl h-full bg-[#020204] border-l border-[#00A3FF]/30 p-5 sm:p-6 flex flex-col justify-between shadow-2xl z-10 font-body"
           >
             {/* Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-[#E7B7A5]/15">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-[#1A1233] text-[#E7B7A5]">
-                  <MessageSquare className="w-5 h-5" />
+            <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-[#00A3FF]/15 border border-[#00A3FF]/40 flex items-center justify-center text-[#00A3FF]">
+                  <Terminal className="w-4 h-4" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-white">Conversation History</h2>
-                  <p className="text-xs text-[#C6A0FF] font-telemetry">
-                    Supporting Subtitles & Audio Log
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="label font-telemetry text-[9px] tracking-[0.3em] uppercase text-[#00A3FF]">
+                      Console
+                    </span>
+                    <span className="text-[10px] font-telemetry text-white/40">
+                      [{messages.length} MSGS]
+                    </span>
+                  </div>
+                  <h2 className="text-base font-bold tracking-wider text-white font-brand">
+                    NEURAL CHAT BOX
+                  </h2>
                 </div>
               </div>
 
@@ -72,23 +112,42 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
                 <button
                   id="btn-clear-transcript"
                   onClick={onClearChat}
-                  className="p-2 rounded-xl text-white/40 hover:text-rose-300 hover:bg-rose-500/10 transition-all text-xs"
-                  title="Clear history"
+                  className="p-2 border border-white/[0.08] hover:border-rose-500/50 text-white/40 hover:text-rose-300 hover:bg-rose-500/10 transition-all text-xs"
+                  title="Clear conversation history"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
                 <button
                   id="btn-close-transcript"
                   onClick={onClose}
-                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all"
+                  className="p-2 border border-white/[0.08] hover:border-[#00A3FF]/50 text-white/60 hover:text-white hover:bg-white/[0.04] transition-all"
+                  title="Close Chat Box"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* Transcript Messages List */}
-            <div className="flex-1 overflow-y-auto py-4 space-y-3.5 pr-1">
+            {/* Quick Prompt Sparks */}
+            <div className="py-2.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar border-b border-white/[0.05]">
+              <span className="text-[9px] font-telemetry text-[#00A3FF] tracking-widest uppercase shrink-0 mr-1 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                PROMPTS:
+              </span>
+              {QUICK_SPARKS.map((spark, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleSparkClick(spark)}
+                  disabled={isThinking}
+                  className="shrink-0 text-[10px] font-telemetry px-2.5 py-1 bg-white/[0.03] hover:bg-[#00A3FF]/15 border border-white/[0.08] hover:border-[#00A3FF]/40 text-white/70 hover:text-white transition-all whitespace-nowrap disabled:opacity-40 cursor-pointer"
+                >
+                  {spark}
+                </button>
+              ))}
+            </div>
+
+            {/* Messages Stream */}
+            <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
               {messages.map((msg, idx) => {
                 const isModel = msg.role === 'model';
                 const isPlaying = playingMessageId === msg.id;
@@ -98,37 +157,51 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
                     key={`${msg.id || 'transcript'}_${idx}`}
                     className={`flex flex-col ${isModel ? 'items-start' : 'items-end'}`}
                   >
-                    <div className="flex items-center gap-1.5 mb-1 px-1 text-[11px] font-telemetry text-white/45">
-                      <span>{isModel ? 'MERY' : 'YOU'}</span>
+                    {/* Header meta */}
+                    <div className="flex items-center gap-2 mb-1 px-1 text-[10px] font-telemetry text-white/40">
+                      <span className={isModel ? 'text-[#00A3FF] font-semibold' : 'text-white/70'}>
+                        {isModel ? 'MERY // NEURAL' : 'USER // INPUT'}
+                      </span>
                       <span>•</span>
                       <span>{msg.timestamp}</span>
                       {isModel && msg.emotion && (
-                        <span className="text-[#E7B7A5]">[{msg.emotion}]</span>
+                        <span className="text-white/60 uppercase border border-white/10 px-1 py-0.2 text-[9px]">
+                          {msg.emotion}
+                        </span>
                       )}
                     </div>
 
+                    {/* Bubble */}
                     <div
-                      className={`max-w-[88%] rounded-2xl p-3 text-sm leading-relaxed transition-all ${
+                      className={`max-w-[90%] p-3.5 text-sm leading-relaxed transition-all ${
                         isModel
-                          ? 'bg-[#150F26] border border-[#E7B7A5]/25 text-[#F3EFFA]'
-                          : 'bg-[#9D7BFF]/20 border border-[#9D7BFF]/40 text-white'
+                          ? 'bg-white/[0.03] border-l-2 border-l-[#00A3FF] border-y border-r border-white/[0.06] text-white/95 backdrop-blur-md'
+                          : 'bg-[#00A3FF]/10 border border-[#00A3FF]/40 text-white'
                       }`}
                     >
-                      <p>{msg.content}</p>
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                      {/* Action details if parsed */}
+                      {msg.actionExecuted && (
+                        <div className="mt-2 pt-2 border-t border-white/10 flex items-center gap-1.5 text-[10px] font-telemetry text-emerald-400">
+                          <Activity className="w-3 h-3" />
+                          <span>Action: {msg.actionExecuted.type}</span>
+                        </div>
+                      )}
 
                       {/* Vocalize button */}
                       {isModel && (
-                        <div className="mt-2 pt-2 border-t border-white/10 flex justify-end">
+                        <div className="mt-2.5 pt-2 border-t border-white/10 flex justify-end">
                           <button
                             onClick={() => onPlayVoice(msg)}
-                            className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all ${
+                            className={`flex items-center gap-1.5 text-[10px] font-telemetry px-2.5 py-1 border transition-all ${
                               isPlaying
-                                ? 'bg-[#E7B7A5] text-[#07060D] font-medium'
-                                : 'text-[#C6A0FF] hover:text-white hover:bg-white/5'
+                                ? 'bg-[#00A3FF] border-[#00A3FF] text-white font-semibold shadow-[0_0_12px_rgba(0,163,255,0.5)]'
+                                : 'bg-white/[0.03] border-white/[0.1] text-white/60 hover:text-white hover:border-[#00A3FF]/50'
                             }`}
                           >
-                            <Volume2 className="w-3.5 h-3.5" />
-                            <span>{isPlaying ? 'Playing...' : 'Play voice'}</span>
+                            <Volume2 className={`w-3 h-3 ${isPlaying ? 'animate-pulse' : ''}`} />
+                            <span>{isPlaying ? 'STREAMING...' : 'VOCALIZE'}</span>
                           </button>
                         </div>
                       )}
@@ -136,30 +209,59 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
                   </div>
                 );
               })}
+
+              {/* Thinking Indicator */}
+              {isThinking && (
+                <div className="flex flex-col items-start gap-1">
+                  <div className="flex items-center gap-2 px-1 text-[10px] font-telemetry text-[#00A3FF]">
+                    <span>MERY // PROCESSING</span>
+                  </div>
+                  <div className="bg-white/[0.03] border-l-2 border-l-[#00A3FF] border-y border-r border-white/[0.06] p-3 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#00A3FF] animate-spin" />
+                    <span className="text-xs font-telemetry text-white/70">
+                      Synthesizing neural response...
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
             </div>
 
-            {/* Fallback Keyboard Input Area (Optional quiet mode) */}
-            <div className="pt-3 border-t border-[#E7B7A5]/15">
-              <p className="text-[11px] text-white/40 font-telemetry mb-2">
-                QUIET MODE INPUT (VOICE IS DEFAULT):
-              </p>
+            {/* Chat Box Input Area */}
+            <div className="pt-3 border-t border-white/[0.08]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] text-white/40 font-telemetry tracking-wider">
+                  CHAT BOX INPUT
+                </span>
+                <span className="text-[9px] text-[#00A3FF] font-telemetry tracking-widest uppercase flex items-center gap-1">
+                  <CornerDownLeft className="w-2.5 h-2.5" />
+                  PRESS ENTER TO TRANSMIT
+                </span>
+              </div>
               <form onSubmit={handleSubmit} className="relative flex items-center gap-2">
                 <input
-                  id="quiet-mode-input"
+                  ref={inputRef}
+                  id="chat-box-input"
                   type="text"
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="Type only if you cannot speak aloud..."
+                  placeholder={
+                    isThinking
+                      ? 'Synthesizing neural reply...'
+                      : 'Type a message or instruction for Mery...'
+                  }
                   disabled={isThinking}
-                  className="w-full bg-[#150F26] border border-[#E7B7A5]/25 rounded-xl px-3.5 py-2.5 text-sm text-[#F3EFFA] placeholder:text-white/30 focus:outline-none focus:border-[#9D7BFF]"
+                  className="w-full bg-white/[0.03] border border-white/[0.12] focus:border-[#00A3FF] px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none transition-all font-sans"
                 />
                 <button
-                  id="btn-quiet-mode-send"
+                  id="btn-chat-box-send"
                   type="submit"
                   disabled={!text.trim() || isThinking}
-                  className="p-2.5 rounded-xl bg-gradient-to-tr from-[#9D7BFF] to-[#E7B7A5] text-[#07060D] font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-110 transition-all"
+                  className="px-4 py-2.5 bg-[#00A3FF] hover:bg-[#0084FF] text-white font-telemetry text-xs tracking-wider uppercase disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0 flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(0,163,255,0.35)]"
                 >
-                  <Send className="w-4 h-4" />
+                  <Send className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">SEND</span>
                 </button>
               </form>
             </div>
@@ -169,3 +271,4 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
     </AnimatePresence>
   );
 };
+

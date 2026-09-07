@@ -86,19 +86,19 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className="relative w-full max-w-2xl max-h-[90vh] bg-[#0E0A1B]/95 border border-[#E7B7A5]/25 rounded-3xl p-5 sm:p-7 shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_40px_rgba(157,123,255,0.15)] backdrop-blur-2xl flex flex-col z-10 overflow-y-auto text-[#F3EFFA]"
+            className="relative w-full max-w-2xl max-h-[90vh] bg-[#020204]/95 border border-[#00A3FF]/25 rounded-3xl p-5 sm:p-7 shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_40px_rgba(0,163,255,0.15)] backdrop-blur-2xl flex flex-col z-10 overflow-y-auto text-[#FFFFFF]"
           >
             {/* Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-[#E7B7A5]/15">
+            <div className="flex items-center justify-between pb-4 border-b border-[#00A3FF]/15">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-gradient-to-br from-[#9D7BFF]/30 to-[#E7B7A5]/30 border border-[#E7B7A5]/30 text-[#E7B7A5]">
+                <div className="p-2.5 rounded-2xl bg-gradient-to-br from-[#0066FF]/30 to-[#00A3FF]/30 border border-[#00A3FF]/30 text-[#00A3FF]">
                   <Brain className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="font-display font-semibold text-lg text-[#F3EFFA]">
+                  <h2 className="font-display font-semibold text-lg text-[#FFFFFF]">
                     MERY Emotional Intelligence Engine
                   </h2>
-                  <p className="text-xs text-[#E7B7A5]">
+                  <p className="text-xs text-[#00A3FF]">
                     Multimodal emotional awareness, intensity matching & prosody modulation
                   </p>
                 </div>
@@ -120,7 +120,7 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                 onClick={() => setActiveTab('multimodal')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
                   activeTab === 'multimodal'
-                    ? 'bg-[#9D7BFF]/30 text-white border border-[#E7B7A5]/40'
+                    ? 'bg-[#0066FF]/30 text-white border border-[#00A3FF]/40'
                     : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
               >
@@ -131,7 +131,7 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                 onClick={() => setActiveTab('vocal')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
                   activeTab === 'vocal'
-                    ? 'bg-[#9D7BFF]/30 text-white border border-[#E7B7A5]/40'
+                    ? 'bg-[#0066FF]/30 text-white border border-[#00A3FF]/40'
                     : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
               >
@@ -142,7 +142,7 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                 onClick={() => setActiveTab('vectors')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
                   activeTab === 'vectors'
-                    ? 'bg-[#9D7BFF]/30 text-white border border-[#E7B7A5]/40'
+                    ? 'bg-[#0066FF]/30 text-white border border-[#00A3FF]/40'
                     : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
               >
@@ -155,8 +155,8 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
               <div className="space-y-4 my-4">
                 {/* User State & Strategy Card */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-4 rounded-2xl bg-[#140F24]/80 border border-[#9D7BFF]/25">
-                    <div className="text-[11px] font-telemetry tracking-wider text-[#E7B7A5] mb-1 flex items-center justify-between">
+                  <div className="p-4 rounded-2xl bg-[#081426]/80 border border-[#0066FF]/25">
+                    <div className="text-[11px] font-telemetry tracking-wider text-[#00A3FF] mb-1 flex items-center justify-between">
                       <span>DETECTED USER STATE</span>
                       <span className="flex items-center gap-1 text-white/70">
                         {getTrendIcon(userEmotion.trend)}
@@ -164,13 +164,13 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                       </span>
                     </div>
                     <div className="text-xl font-display font-semibold text-white capitalize flex items-center gap-2 mt-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-[#9D7BFF] animate-pulse" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#0066FF] animate-pulse" />
                       {userEmotion.primary}
                     </div>
                     <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/10 text-xs font-telemetry text-white/70">
                       <div>
                         <div className="text-[10px] text-white/40">CONFIDENCE</div>
-                        <div className="font-semibold text-[#E7B7A5]">
+                        <div className="font-semibold text-[#00A3FF]">
                           {(userEmotion.confidence * 100).toFixed(0)}%
                         </div>
                       </div>
@@ -183,8 +183,8 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-[#140F24]/80 border border-[#E7B7A5]/25">
-                    <div className="text-[11px] font-telemetry tracking-wider text-[#E7B7A5] mb-1 flex items-center justify-between">
+                  <div className="p-4 rounded-2xl bg-[#081426]/80 border border-[#00A3FF]/25">
+                    <div className="text-[11px] font-telemetry tracking-wider text-[#00A3FF] mb-1 flex items-center justify-between">
                       <span>RESPONSE STRATEGY</span>
                       <span className="text-[10px] text-emerald-400">Decoupled</span>
                     </div>
@@ -210,7 +210,7 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                 {(userEmotion.topicContext || userEmotion.userConcern) && (
                   <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-xs flex items-center justify-between">
                     <div>
-                      <span className="text-[#E7B7A5] font-semibold">Active Context:</span>{' '}
+                      <span className="text-[#00A3FF] font-semibold">Active Context:</span>{' '}
                       <span className="text-white/80">{userEmotion.topicContext || 'General Dialogue'}</span>
                       {userEmotion.userConcern && (
                         <span className="text-white/50 block text-[11px] mt-0.5">
@@ -218,7 +218,7 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] font-telemetry px-2 py-0.5 rounded-full bg-[#9D7BFF]/20 text-[#C6A0FF]">
+                    <span className="text-[10px] font-telemetry px-2 py-0.5 rounded-full bg-[#0066FF]/20 text-[#38BDF8]">
                       Continuity Active
                     </span>
                   </div>
@@ -239,20 +239,20 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                           key={emo}
                           className={`p-2.5 rounded-xl border transition-all ${
                             isPrimary
-                              ? 'bg-[#9D7BFF]/25 border-[#E7B7A5] text-white'
+                              ? 'bg-[#0066FF]/25 border-[#00A3FF] text-white'
                               : 'bg-white/5 border-white/5 text-white/70'
                           }`}
                         >
                           <div className="flex items-center justify-between text-xs mb-1">
                             <span className="capitalize font-medium">{emo}</span>
-                            <span className="font-telemetry text-[11px] text-[#E7B7A5]">
+                            <span className="font-telemetry text-[11px] text-[#00A3FF]">
                               {(prob * 100).toFixed(0)}%
                             </span>
                           </div>
                           <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
                             <div
                               className={`h-full transition-all duration-500 ${
-                                isPrimary ? 'bg-[#E7B7A5]' : 'bg-[#9D7BFF]/60'
+                                isPrimary ? 'bg-[#00A3FF]' : 'bg-[#0066FF]/60'
                               }`}
                               style={{ width: `${Math.min(100, prob * 100)}%` }}
                             />
@@ -278,21 +278,21 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
             {/* Tab 2: Voice Prosody Modulation */}
             {activeTab === 'vocal' && (
               <div className="space-y-4 my-4">
-                <div className="p-4 rounded-2xl bg-[#140F24]/80 border border-[#9D7BFF]/20">
-                  <div className="text-[11px] font-telemetry tracking-wider text-[#E7B7A5] mb-2 flex items-center justify-between">
+                <div className="p-4 rounded-2xl bg-[#081426]/80 border border-[#0066FF]/20">
+                  <div className="text-[11px] font-telemetry tracking-wider text-[#00A3FF] mb-2 flex items-center justify-between">
                     <span>ACTIVE VOICE PROSODY MODULATION</span>
                     <span className="text-[10px] text-white/50">Provider-Agnostic</span>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                     <div className="p-3 rounded-xl bg-white/5 border border-white/5">
                       <div className="text-[10px] text-white/40">PITCH</div>
-                      <div className="text-base font-telemetry font-semibold text-[#E7B7A5]">
+                      <div className="text-base font-telemetry font-semibold text-[#00A3FF]">
                         {voiceMod.pitch.toFixed(2)}x
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-white/5 border border-white/5">
                       <div className="text-[10px] text-white/40">RATE (SPEED)</div>
-                      <div className="text-base font-telemetry font-semibold text-[#C6A0FF]">
+                      <div className="text-base font-telemetry font-semibold text-[#38BDF8]">
                         {voiceMod.rate.toFixed(2)}x
                       </div>
                     </div>
@@ -327,7 +327,7 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                           onClick={() => onSetDominantEmotion(emo.name)}
                           className={`p-3 rounded-xl text-left border transition-all ${
                             isSelected
-                              ? 'bg-[#9D7BFF]/25 border-[#E7B7A5]/50 shadow-[0_0_15px_rgba(157,123,255,0.2)]'
+                              ? 'bg-[#0066FF]/25 border-[#00A3FF]/50 shadow-[0_0_15px_rgba(0,163,255,0.2)]'
                               : 'bg-white/5 border-white/10 hover:bg-white/10 text-white/70 hover:text-white'
                           }`}
                         >
@@ -352,7 +352,7 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-xs font-telemetry tracking-wider text-white/60">
                     <span>INTERNAL VECTOR INTENSITIES</span>
-                    <span className="text-[10px] text-[#E7B7A5]">Live Feedback</span>
+                    <span className="text-[10px] text-[#00A3FF]">Live Feedback</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -366,11 +366,11 @@ export const EmotionRadarModal: React.FC<EmotionRadarModalProps> = ({
                     ].map((item) => (
                       <div
                         key={item.key}
-                        className="p-3 rounded-xl bg-[#150F26] border border-white/10 hover:border-[#9D7BFF]/30 transition-all"
+                        className="p-3 rounded-xl bg-[#150F26] border border-white/10 hover:border-[#0066FF]/30 transition-all"
                       >
                         <div className="flex justify-between text-xs font-medium mb-1.5">
                           <span className="text-white/80">{item.label}</span>
-                          <span className="font-telemetry text-[#E7B7A5] font-semibold">{item.val}%</span>
+                          <span className="font-telemetry text-[#00A3FF] font-semibold">{item.val}%</span>
                         </div>
                         <input
                           id={`slider-emotion-${item.key}`}

@@ -1,4 +1,5 @@
 import { VoiceModulationConfig } from '../types';
+import { stateManager } from './StateManager';
 
 export interface TTSOptions {
   voiceId?: string;
@@ -135,29 +136,59 @@ export class LocalTTSProvider implements ITTSProvider {
       utterance.volume = volume;
 
       const voices = window.speechSynthesis.getVoices();
-      const hasGujarati = /[\u0A80-\u0AFF]/.test(text);
+      const activeLang = stateManager.getLanguage() || 'gu-IN';
+      let targetLang = activeLang;
+      if (/[\u0A80-\u0AFF]/.test(text)) {
+        targetLang = 'gu-IN';
+      } else if (/[\u0900-\u097F]/.test(text)) {
+        targetLang = 'hi-IN';
+      }
 
-      if (hasGujarati) {
+      console.log('[VOICE] requested (TTSProvider):', targetLang);
+
+      if (targetLang === 'gu-IN' || targetLang.startsWith('gu')) {
         utterance.lang = 'gu-IN';
-        const gujaratiVoice =
-          voices.find(
-            (v) =>
-              v.lang.startsWith('gu') ||
-              v.lang.toLowerCase().includes('gujarat') ||
-              v.name.toLowerCase().includes('gujarat')
-          ) ||
-          voices.find(
-            (v) =>
-              v.lang.startsWith('hi') ||
-              v.lang.startsWith('en-IN') ||
-              v.name.toLowerCase().includes('india')
-          );
+        const gujaratiVoice = voices.find(
+          (v) =>
+            v.lang.toLowerCase().startsWith('gu') ||
+            v.lang.toLowerCase().includes('gujarat') ||
+            v.name.toLowerCase().includes('gujarat')
+        ) || null;
+
         if (gujaratiVoice) {
           utterance.voice = gujaratiVoice;
+          utterance.lang = gujaratiVoice.lang || 'gu-IN';
+        } else {
+          utterance.voice = null;
+          utterance.lang = 'gu-IN';
+          console.warn('[VOICE] No Gujarati voice found. Using browser default gu-IN synthesis without foreign fallback.');
+        }
+      } else if (targetLang === 'hi-IN' || targetLang.startsWith('hi')) {
+        utterance.lang = 'hi-IN';
+        const hindiVoice = voices.find(
+          (v) =>
+            v.lang.toLowerCase().startsWith('hi') ||
+            v.lang.toLowerCase().includes('hindi') ||
+            v.name.toLowerCase().includes('hindi')
+        ) || null;
+
+        if (hindiVoice) {
+          utterance.voice = hindiVoice;
+          utterance.lang = hindiVoice.lang || 'hi-IN';
+        } else {
+          utterance.voice = null;
+          utterance.lang = 'hi-IN';
+          console.warn('[VOICE] No Hindi voice found. Using browser default hi-IN synthesis without foreign fallback.');
         }
       } else {
-        utterance.lang = 'en-US';
+        const enLocale = targetLang.startsWith('en') ? targetLang : 'en-IN';
+        utterance.lang = enLocale;
         const preferred =
+          voices.find(
+            (v) =>
+              v.lang.toLowerCase().startsWith('en-in') ||
+              (v.lang.toLowerCase().startsWith('en') && v.name.toLowerCase().includes('india'))
+          ) ||
           voices.find(
             (v) =>
               (v.name.includes('Samantha') ||
@@ -165,11 +196,17 @@ export class LocalTTSProvider implements ITTSProvider {
                 v.name.includes('Victoria') ||
                 v.name.includes('Natural') ||
                 v.name.includes('Female')) &&
-              v.lang.startsWith('en')
-          ) || voices.find((v) => v.lang.startsWith('en'));
+              v.lang.toLowerCase().startsWith('en')
+          ) ||
+          voices.find((v) => v.lang.toLowerCase().startsWith('en')) ||
+          null;
 
         if (preferred) {
           utterance.voice = preferred;
+          utterance.lang = preferred.lang || enLocale;
+        } else {
+          utterance.voice = null;
+          utterance.lang = enLocale;
         }
       }
 

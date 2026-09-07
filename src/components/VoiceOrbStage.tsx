@@ -1,58 +1,131 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
-  Mic,
-  MicOff,
-  Power,
   Sparkles,
   Zap,
+  MicOff,
+  Send,
+  SlidersHorizontal,
+  Database,
+  MessageSquare,
+  Cpu,
   Globe,
   Search,
-  CheckCircle2,
   Clock,
-  Radio,
-  Sliders,
   Shield,
+  Monitor,
+  Languages,
   Volume2,
   VolumeX,
-  Languages,
+  Camera,
+  CameraOff,
 } from 'lucide-react';
-import { AssistantState, ConversationState, ToolExecutionRecord, TurnTakingAnalysis } from '../types';
+import { AssistantState, ConversationState, ToolExecutionRecord, AIStatus, ChatMessage } from '../types';
 import { stateManager, SpokenLanguage } from '../modules/StateManager';
 import { audioStreamer } from '../modules/AudioStreamer';
-import { audioPlayer } from '../modules/AudioPlayer';
 import { liveSession } from '../modules/LiveSession';
+import { screenShareService } from '../modules/ScreenShareService';
+import { cameraService } from '../modules/CameraService';
+import { voiceService } from '../utils/audio';
 
 interface VoiceOrbStageProps {
   onOpenSettings: () => void;
   onOpenTools: () => void;
+  onOpenTranscript?: () => void;
+  onOpenAgentDev?: () => void;
+  onStartVoiceSession?: () => Promise<void> | void;
+  onOpenMemory?: () => void;
+  onOpenSystemControl?: () => void;
+  onOpenActivity?: () => void;
+  onOpenEmotion?: () => void;
+  voiceEnabled?: boolean;
+  onToggleVoice?: () => void;
+  onSendMessage?: (text: string) => void;
+  isThinking?: boolean;
+  messageCount?: number;
+  visualMode?: 'avatar' | 'hologram';
+  onToggleVisualMode?: () => void;
+  children?: React.ReactNode;
+  showChatText?: boolean;
+  onToggleChatText?: () => void;
+  messages?: ChatMessage[];
+  onPlayVoice?: (msg: ChatMessage) => void;
+  playingMessageId?: string | null;
 }
 
 export const VoiceOrbStage: React.FC<VoiceOrbStageProps> = ({
   onOpenSettings,
   onOpenTools,
+  onOpenTranscript,
+  onOpenAgentDev,
+  onStartVoiceSession,
+  onOpenMemory,
+  onOpenSystemControl,
+  onOpenActivity,
+  onOpenEmotion,
+  voiceEnabled = true,
+  onToggleVoice,
+  onSendMessage,
+  isThinking = false,
+  messageCount = 0,
+  visualMode = 'avatar',
+  onToggleVisualMode,
+  children,
+  showChatText,
+  onToggleChatText,
+  messages = [],
+  onPlayVoice,
+  playingMessageId,
 }) => {
+  const [internalShowChatText, setInternalShowChatText] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('mery_show_chat_text') === 'true';
+    } catch {
+      return false; // Default: false (voice-first clean UI)
+    }
+  });
+
+  const isChatVisible = showChatText !== undefined ? showChatText : internalShowChatText;
+
+  const toggleChatVisibility = () => {
+    if (onToggleChatText) {
+      onToggleChatText();
+    } else {
+      setInternalShowChatText((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('mery_show_chat_text', String(next));
+        } catch {}
+        return next;
+      });
+    }
+  };
+
   const [state, setState] = useState<AssistantState>(stateManager.getState());
-  const [convState, setConvState] = useState<ConversationState>(stateManager.getConversationState());
-  const [analysis, setAnalysis] = useState<TurnTakingAnalysis | null>(stateManager.getLastAnalysis());
+  const [, setConvState] = useState<ConversationState>(stateManager.getConversationState());
   const [isMuted, setIsMuted] = useState<boolean>(stateManager.getIsMuted());
   const [activeTool, setActiveTool] = useState<ToolExecutionRecord | null>(
     stateManager.getActiveTool()
   );
   const [latency, setLatency] = useState<number>(stateManager.getLatency());
   const [language, setLanguage] = useState<SpokenLanguage>(stateManager.getLanguage());
+  const [latestTranscript, setLatestTranscript] = useState<{ text: string; role: 'model' | 'user' } | null>(null);
+  const [isSharingScreen, setIsSharingScreen] = useState<boolean>(screenShareService.isSharing());
+  const [inlineChatText, setInlineChatText] = useState('');
+  const [aiStatus, setAiStatus] = useState<AIStatus>(stateManager.getAIStatus());
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(cameraService.isCameraActive());
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-
-  // Subscribe to state changes
+  // Subscribe to real-time session state
   useEffect(() => {
     const unsubState = stateManager.onStateChange((newState) => {
       setState(newState);
+      if (newState === 'disconnected') {
+        setLatestTranscript(null);
+      }
     });
 
-    const unsubConv = stateManager.onConversationStateChange((newConvState, newAnalysis) => {
+    const unsubConv = stateManager.onConversationStateChange((newConvState) => {
       setConvState(newConvState);
-      if (newAnalysis) setAnalysis(newAnalysis);
     });
 
     const unsubTool = stateManager.onToolUpdate((tool) => {
@@ -61,6 +134,29 @@ export const VoiceOrbStage: React.FC<VoiceOrbStageProps> = ({
 
     const unsubLang = stateManager.onLanguageChange((newLang) => {
       setLanguage(newLang);
+    });
+
+    const unsubTranscript = liveSession.onTranscript((text, role) => {
+      setLatestTranscript({ text, role });
+    });
+
+    const unsubScreen = screenShareService.subscribe(() => {
+      setIsSharingScreen(screenShareService.isSharing());
+    });
+
+    const unsubAIStatus = stateManager.onAIStatusChange((newStatus) => {
+      setAiStatus(newStatus);
+    });
+
+    const unsubCamera = cameraService.subscribe(() => {
+      const active = cameraService.isCameraActive();
+      setIsCameraActive(active);
+      if (active && videoPreviewRef.current) {
+        const stream = cameraService.getStream();
+        if (stream && videoPreviewRef.current.srcObject !== stream) {
+          videoPreviewRef.current.srcObject = stream;
+        }
+      }
     });
 
     const interval = setInterval(() => {
@@ -73,535 +169,553 @@ export const VoiceOrbStage: React.FC<VoiceOrbStageProps> = ({
       unsubConv();
       unsubTool();
       unsubLang();
+      unsubTranscript();
+      unsubScreen();
+      unsubAIStatus();
+      unsubCamera();
       clearInterval(interval);
     };
   }, []);
 
-  // Real-time canvas audio visualizer loop
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let phase = 0;
-
-    const render = () => {
-      animationFrameRef.current = requestAnimationFrame(render);
-      phase += 0.05;
-
-      const width = canvas.width;
-      const height = canvas.height;
-      ctx.clearRect(0, 0, width, height);
-
-      let freqData: Uint8Array;
-      let isInput = false;
-
-      if (state === 'speaking') {
-        freqData = audioPlayer.getFrequencyData();
-      } else if (state === 'listening' && !isMuted) {
-        freqData = audioStreamer.getFrequencyData();
-        isInput = true;
-      } else {
-        freqData = new Uint8Array(32);
-      }
-
-      const barCount = 32;
-      const barWidth = (width / barCount) * 0.7;
-      const spacing = (width / barCount) * 0.3;
-      const centerY = height / 2;
-
-      for (let i = 0; i < barCount; i++) {
-        const val = freqData[i] || 0;
-        const normalized = val / 255;
-        // Idle gentle wave breathing if active but silent
-        const idleWave =
-          state === 'listening' || state === 'connecting'
-            ? Math.sin(phase + i * 0.3) * 6
-            : 0;
-
-        const barHeight = Math.max(3, normalized * (height * 0.42) + idleWave);
-        const x = i * (barWidth + spacing) + spacing / 2;
-
-        const grad = ctx.createLinearGradient(0, centerY - barHeight, 0, centerY + barHeight);
-        if (state === 'speaking') {
-          grad.addColorStop(0, 'rgba(236, 72, 153, 0.85)'); // Rose/Pink
-          grad.addColorStop(0.5, 'rgba(168, 85, 247, 0.95)'); // Purple
-          grad.addColorStop(1, 'rgba(59, 130, 246, 0.85)'); // Blue
-        } else if (state === 'listening') {
-          grad.addColorStop(0, 'rgba(147, 51, 234, 0.8)');
-          grad.addColorStop(1, 'rgba(6, 182, 212, 0.85)');
-        } else if (state === 'connecting') {
-          grad.addColorStop(0, 'rgba(14, 165, 233, 0.8)');
-          grad.addColorStop(1, 'rgba(99, 102, 241, 0.8)');
-        } else {
-          grad.addColorStop(0, 'rgba(100, 116, 139, 0.25)');
-          grad.addColorStop(1, 'rgba(71, 85, 105, 0.1)');
-        }
-
-        ctx.fillStyle = grad;
-
-        // Rounded bar top and bottom
-        const radius = barWidth / 2;
-        ctx.beginPath();
-        ctx.roundRect(x, centerY - barHeight, barWidth, barHeight * 2, radius);
-        ctx.fill();
-      }
-    };
-
-    render();
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [state, isMuted]);
-
-  const handleOrbClick = async () => {
-    if (state === 'disconnected') {
-      await liveSession.connect();
-    } else if (state === 'speaking') {
-      // Instant user tap-to-interrupt
-      liveSession.handleUserInterrupt();
-    } else if (state === 'listening') {
-      // Tap while listening toggles mute or disconnect option
-      stateManager.notify('Listening to you — speak naturally', 'info');
-    }
-  };
-
   const handleTogglePower = async () => {
     if (state === 'disconnected') {
-      await liveSession.connect();
+      if (onStartVoiceSession) {
+        await onStartVoiceSession();
+      } else {
+        liveSession.stopAllAudio();
+        liveSession.setGreetingActive(true);
+        const connected = await liveSession.connect();
+        if (connected) {
+          const lang = stateManager.getLanguage();
+          const isGujarati = lang === 'gu-IN';
+          const greetingText = isGujarati
+            ? 'હું મેરી છું. સિસ્ટમ ઓનલાઇન છે અને હું સાંભળી રહી છું. આજે આપણો શું પ્લાન છે?'
+            : "I'm MERY. Systems online and listening. What's on our agenda today?";
+
+          stateManager.setState('speaking');
+          setLatestTranscript({ text: greetingText, role: 'model' });
+          liveSession.dispatchTranscript(greetingText, 'model');
+
+          voiceService.speakBrowserVoice(
+            greetingText,
+            () => {
+              stateManager.setState('speaking');
+            },
+            () => {
+              liveSession.setGreetingActive(false);
+              voiceService.playAcousticChime('listen_start');
+              stateManager.setState('listening');
+            },
+            { pitch: 1.04, rate: 0.96 }
+          );
+        } else {
+          liveSession.setGreetingActive(false);
+        }
+      }
     } else {
       liveSession.disconnect();
     }
   };
 
-  const handleToggleMute = () => {
-    const nextMute = !isMuted;
-    audioStreamer.setMuted(nextMute);
-    stateManager.setMuted(nextMute);
-    setIsMuted(nextMute);
-  };
-
   const handleToggleLanguage = (newLang?: SpokenLanguage) => {
-    const next = newLang || (language === 'gu-IN' ? 'en-US' : 'gu-IN');
-    stateManager.setLanguage(next);
+    let next = newLang;
+    if (!next) {
+      if (language === 'gu-IN') next = 'hi-IN';
+      else if (language === 'hi-IN') next = 'en-US';
+      else next = 'gu-IN';
+    }
+    stateManager.setActiveLanguage(next);
     if (liveSession.isConnected()) {
       const prompt =
         next === 'gu-IN'
           ? 'કૃપા કરીને હવેથી મારી સાથે ગુજરાતીમાં વાત કરો. (Please speak in Gujarati now.)'
+          : next === 'hi-IN'
+          ? 'कृपया अब से मुझसे हिंदी में बात करें। (Please speak in Hindi now.)'
           : 'Please converse with me in English now.';
       liveSession.sendTextMessage(prompt);
     }
   };
 
-  const handleQuickPrompt = async (prompt: string, lang: SpokenLanguage) => {
-    stateManager.setLanguage(lang);
-    if (!liveSession.isConnected()) {
-      const connected = await liveSession.connect();
-      if (connected) {
-        setTimeout(() => {
-          liveSession.sendTextMessage(prompt);
-        }, 600);
-      }
-    } else {
-      liveSession.sendTextMessage(prompt);
+  const handleInlineSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inlineChatText.trim() || isThinking) return;
+    if (onSendMessage) {
+      onSendMessage(inlineChatText.trim());
+    } else if (liveSession.isConnected()) {
+      liveSession.sendTextMessage(inlineChatText.trim());
+    }
+    setInlineChatText('');
+  };
+
+  const getStatusDotClass = () => {
+    switch (aiStatus) {
+      case 'SPEAKING':
+        return 'bg-[#00ff66] shadow-[0_0_12px_#00ff66] animate-pulse';
+      case 'LISTENING':
+        return 'bg-[#00ff66] shadow-[0_0_10px_#00ff66]';
+      case 'THINKING':
+        return 'bg-amber-400 shadow-[0_0_12px_#f59e0b] animate-pulse';
+      case 'SEARCHING':
+        return 'bg-cyan-400 shadow-[0_0_12px_#06b6d4] animate-pulse';
+      case 'ANALYZING':
+        return 'bg-fuchsia-400 shadow-[0_0_12px_#e879f9] animate-pulse';
+      case 'COMPLETED':
+        return 'bg-emerald-400 shadow-[0_0_10px_#10b981]';
+      case 'ERROR':
+        return 'bg-rose-500 shadow-[0_0_12px_#f43f5e] animate-bounce';
+      case 'IDLE':
+      default:
+        return 'bg-[#00ff66]/50';
     }
   };
 
+  const telemetryStatus =
+    state === 'speaking'
+      ? 'AUDIO_STREAM_ACTIVE'
+      : state === 'listening'
+      ? (isMuted ? 'MIC_MUTED_STATE' : 'LISTENING_ACTIVE')
+      : isThinking
+      ? 'NEURAL_SYNTHESIS'
+      : state === 'connecting'
+      ? 'SYNCING_CORE'
+      : 'SYSTEM_READY_STATE';
+
   return (
-    <div
-      id="voice_orb_stage"
-      className="relative flex flex-col items-center justify-between w-full h-full max-w-4xl mx-auto px-4 py-6 select-none"
-    >
-      {/* Top Status HUD */}
+    <div className="w-full h-full flex flex-col justify-between relative overflow-hidden select-none">
+      {/* Top HUD Pill (Variation 11) */}
       <div
-        id="top_status_hud"
-        className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-white/10 shadow-2xl z-20"
+        className="top-hud"
+        onClick={onOpenSettings}
+        title="MERY Core Status - Click for System Config"
       >
-        <div className="flex items-center gap-3">
-          <div className="relative flex items-center justify-center">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                state === 'speaking'
-                  ? 'bg-rose-400 animate-pulse'
-                  : state === 'listening'
-                  ? 'bg-emerald-400 animate-ping'
-                  : state === 'connecting'
-                  ? 'bg-cyan-400 animate-spin'
-                  : 'bg-slate-500'
-              }`}
-            />
-            <span
-              className={`absolute w-2.5 h-2.5 rounded-full ${
-                state === 'speaking'
-                  ? 'bg-rose-400'
-                  : state === 'listening'
-                  ? 'bg-emerald-400'
-                  : state === 'connecting'
-                  ? 'bg-cyan-400'
-                  : 'bg-slate-500'
-              }`}
-            />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xs font-semibold tracking-wider text-slate-300 uppercase">
-              MERY Live Link
-            </span>
-            <span className="text-[11px] text-slate-400">
-              {state === 'speaking' && 'MERY is speaking'}
-              {state === 'listening' && 'Listening (PCM16 16kHz)'}
-              {state === 'connecting' && 'Establishing Link...'}
-              {state === 'disconnected' && 'Standby / Offline'}
-            </span>
-          </div>
-        </div>
-
-        {/* Live Metrics & Quick Actions */}
-        <div className="flex items-center gap-2">
-          {/* Gujarati / English Spoken Language Toggle */}
-          <button
-            id="btn_toggle_language"
-            onClick={() => handleToggleLanguage()}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
-              language === 'gu-IN'
-                ? 'bg-gradient-to-r from-amber-500/25 to-purple-600/25 text-amber-200 border-amber-400/40 shadow-md shadow-amber-500/10'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
-            }`}
-            title="Toggle Live Language: ગુજરાતી (Gujarati) / English"
-          >
-            <Languages className="w-3.5 h-3.5 text-amber-400" />
-            <span className="tracking-wide">
-              {language === 'gu-IN' ? 'ગુજરાતી (GU)' : 'English (EN)'}
-            </span>
-          </button>
-
-          {state !== 'disconnected' && (
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] text-slate-300">
-              <Radio className="w-3 h-3 text-cyan-400 animate-pulse" />
-              <span>{latency}ms</span>
-            </div>
-          )}
-
-          <button
-            id="open_tools_btn"
-            onClick={onOpenTools}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs transition-colors border border-white/5"
-            title="Tool & Action Nexus"
-          >
-            <Zap className="w-3.5 h-3.5 text-purple-400" />
-            <span className="hidden sm:inline">Tools</span>
-          </button>
-
-          <button
-            id="open_settings_btn"
-            onClick={onOpenSettings}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs transition-colors border border-white/5"
-            title="API & Voice Configuration"
-          >
-            <Sliders className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">Settings</span>
-          </button>
+        <div className={`status-dot ${getStatusDotClass()}`} />
+        <div className="hud-text">
+          MERY // STATUS: {aiStatus} // {latency > 0 ? latency : 28}MS
         </div>
       </div>
 
-      {/* Active Tool Execution Pill (Animated) */}
-      {activeTool && (
-        <div
-          id="active_tool_pill"
-          className="mt-3 px-4 py-2 rounded-full bg-purple-950/80 border border-purple-500/40 backdrop-blur-md flex items-center gap-2 shadow-lg shadow-purple-950/50 animate-bounce"
-        >
-          {activeTool.name === 'openWebsite' && <Globe className="w-4 h-4 text-cyan-400 animate-spin" />}
-          {activeTool.name === 'searchWeb' && <Search className="w-4 h-4 text-amber-400 animate-pulse" />}
-          {activeTool.name === 'getSystemStatus' && <Clock className="w-4 h-4 text-emerald-400" />}
-          {activeTool.name === 'executeDangerousAction' && <Shield className="w-4 h-4 text-rose-400 animate-pulse" />}
-          {activeTool.status === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          ) : (
-            <Sparkles className="w-4 h-4 text-purple-400 animate-spin" />
-          )}
-          <span className="text-xs text-purple-100 font-medium">
-            {activeTool.status === 'running' && `Executing ${activeTool.name}...`}
-            {activeTool.status === 'success' && `Completed ${activeTool.name}`}
-            {activeTool.status === 'failed' && `Failed ${activeTool.name}`}
+      {/* Hero Main Area (Variation 11) */}
+      <main className="flex-1 flex flex-col justify-center items-center relative pt-12 sm:pt-14 pb-2 px-4">
+        {/* Mode Indicator: I'M MERY (Top Left) */}
+        <div className="absolute top-5 left-5 sm:top-6 sm:left-8 flex flex-col items-start gap-1 z-20">
+          <div className="mode-indicator">I'M MERY</div>
+          <span className="font-telemetry text-[9px] tracking-[0.25em] text-[#00ff66]/70 uppercase">
+            NEURAL COMPANION
           </span>
         </div>
-      )}
 
-      {/* Central Voice Orb Presence */}
-      <div
-        id="central_presence_container"
-        className="relative flex flex-col items-center justify-center my-auto py-8"
-      >
-        {/* Multi-layered Animated Glow Rings */}
-        <div className="relative flex items-center justify-center">
-          {/* Outermost Pulsing Ambient Field */}
-          <div
-            className={`absolute w-72 h-72 sm:w-88 sm:h-88 rounded-full blur-3xl transition-all duration-700 pointer-events-none ${
-              state === 'speaking'
-                ? 'bg-gradient-to-tr from-rose-500/30 via-purple-500/30 to-blue-500/30 scale-125 animate-pulse'
-                : state === 'listening'
-                ? 'bg-gradient-to-tr from-purple-600/20 via-cyan-500/20 to-emerald-500/20 scale-105'
-                : state === 'connecting'
-                ? 'bg-cyan-500/25 scale-110 animate-spin'
-                : 'bg-slate-700/10 scale-90'
-            }`}
-          />
-
-          {/* Secondary Harmonic Ring */}
-          <div
-            className={`absolute w-56 h-56 sm:w-72 sm:h-72 rounded-full border border-white/10 transition-all duration-500 pointer-events-none ${
-              state === 'speaking'
-                ? 'border-rose-400/40 scale-110 shadow-lg shadow-rose-500/20'
-                : state === 'listening'
-                ? 'border-purple-400/30 scale-100 shadow-lg shadow-purple-500/20 animate-pulse'
-                : state === 'connecting'
-                ? 'border-cyan-400/40 animate-ping'
-                : 'border-white/5'
-            }`}
-          />
-
-          {/* The Main Voice Orb Button */}
-          <button
-            id="mery_voice_orb_interactive"
-            onClick={handleOrbClick}
-            className={`group relative w-48 h-48 sm:w-60 sm:h-60 rounded-full flex flex-col items-center justify-center cursor-pointer transition-all duration-500 focus:outline-none focus:ring-4 focus:ring-purple-500/30 ${
-              state === 'speaking'
-                ? 'bg-gradient-to-br from-purple-900/90 via-rose-900/80 to-indigo-950/90 shadow-2xl shadow-rose-600/40 hover:scale-105 active:scale-95 border-2 border-rose-400/60'
-                : state === 'listening'
-                ? 'bg-gradient-to-br from-slate-900/90 via-purple-950/80 to-cyan-950/90 shadow-2xl shadow-purple-600/30 hover:scale-105 active:scale-95 border-2 border-cyan-400/40'
-                : state === 'connecting'
-                ? 'bg-gradient-to-br from-slate-900/90 via-cyan-950/80 to-blue-950/90 shadow-2xl shadow-cyan-500/30 border-2 border-cyan-400/60'
-                : 'bg-gradient-to-br from-slate-900/90 via-slate-800/80 to-slate-950/90 shadow-xl shadow-black/60 hover:scale-105 active:scale-95 border-2 border-white/10'
-            }`}
-            title={
-              state === 'disconnected'
-                ? 'Click to Connect MERY'
-                : state === 'speaking'
-                ? 'Click to Interrupt MERY'
-                : 'Listening to you'
-            }
-          >
-            {/* Morphing Inner Glow Canvas/Disc */}
-            <div
-              className={`absolute inset-3 rounded-full opacity-70 blur-md transition-all duration-700 ${
-                state === 'speaking'
-                  ? 'bg-gradient-to-tr from-pink-500 via-rose-400 to-indigo-400 animate-pulse'
-                  : state === 'listening'
-                  ? 'bg-gradient-to-tr from-cyan-400 via-purple-500 to-indigo-500'
-                  : state === 'connecting'
-                  ? 'bg-gradient-to-tr from-cyan-400 to-blue-600 animate-spin'
-                  : 'bg-slate-700/40'
-              }`}
-            />
-
-            {/* Core Icon & Status Text */}
-            <div className="relative z-10 flex flex-col items-center justify-center text-center px-4">
-              {state === 'disconnected' && (
-                <>
-                  <Power className="w-10 h-10 sm:w-12 sm:h-12 text-slate-300 mb-2 group-hover:text-white transition-colors" />
-                  <span className="text-sm sm:text-base font-semibold text-white tracking-wide">
-                    Connect MERY
-                  </span>
-                  <span className="text-[11px] text-slate-400 mt-1">
-                    Tap to start live voice
-                  </span>
-                </>
-              )}
-
-              {state === 'connecting' && (
-                <>
-                  <Sparkles className="w-10 h-10 sm:w-12 sm:h-12 text-cyan-300 animate-spin mb-2" />
-                  <span className="text-sm sm:text-base font-semibold text-cyan-200">
-                    Linking...
-                  </span>
-                  <span className="text-[11px] text-cyan-300/70 mt-1">
-                    Quantum Live Audio
-                  </span>
-                </>
-              )}
-
-              {state === 'listening' && (
-                <>
-                  {isMuted ? (
-                    <MicOff className="w-10 h-10 sm:w-12 sm:h-12 text-amber-400 mb-2 animate-pulse" />
-                  ) : (
-                    <Mic className="w-10 h-10 sm:w-12 sm:h-12 text-cyan-300 mb-2 animate-bounce" />
-                  )}
-                  <span className="text-sm sm:text-base font-semibold text-white tracking-wide">
-                    {isMuted
-                      ? 'Muted'
-                      : convState === 'USER_SPEAKING'
-                      ? 'You Speaking...'
-                      : convState === 'WAITING_FOR_CONTINUATION'
-                      ? 'Holding Floor...'
-                      : convState === 'SILENT'
-                      ? 'Comfortable Silence'
-                      : convState === 'BACKCHANNELING'
-                      ? 'Listening...'
-                      : 'Listening...'}
-                  </span>
-                  <span className="text-[11px] text-slate-300 mt-1">
-                    {isMuted
-                      ? 'Tap unmute below'
-                      : convState === 'WAITING_FOR_CONTINUATION'
-                      ? 'Take your time, finishing thought'
-                      : convState === 'SILENT'
-                      ? 'Deep focus & silence respected'
-                      : 'Speak naturally like with a friend'}
-                  </span>
-                </>
-              )}
-
-              {state === 'speaking' && (
-                <>
-                  <Volume2 className="w-10 h-10 sm:w-12 sm:h-12 text-rose-300 mb-2 animate-pulse" />
-                  <span className="text-sm sm:text-base font-semibold text-white tracking-wide">
-                    MERY Speaking
-                  </span>
-                  <span className="text-[11px] text-rose-200/90 mt-1 font-medium bg-rose-950/60 px-2 py-0.5 rounded-full border border-rose-500/30">
-                    Tap or speak to interrupt
-                  </span>
-                </>
-              )}
+        {/* Camera Live Viewfinder Window */}
+        {isCameraActive && (
+          <div className="absolute top-16 right-4 sm:top-18 sm:right-8 z-30 flex flex-col items-end gap-1.5 animate-fadeIn">
+            <div className="relative rounded-2xl overflow-hidden border border-[#00ff66]/40 shadow-[0_0_20px_rgba(0,255,102,0.2)] bg-black/80 backdrop-blur-md">
+              <video
+                ref={videoPreviewRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-36 h-28 sm:w-44 sm:h-32 object-cover"
+              />
+              <div className="absolute top-1.5 left-2 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#00ff66] animate-pulse" />
+                <span className="text-[9px] font-telemetry tracking-wider text-[#00ff66] uppercase">
+                  {cameraService.getFacingMode() === 'user' ? 'Front' : 'Rear'}
+                </span>
+              </div>
+              <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
+                <button
+                  onClick={() => cameraService.switchCamera()}
+                  className="px-1.5 py-0.5 rounded bg-black/60 hover:bg-black/90 text-white/80 hover:text-white text-[8px] font-telemetry cursor-pointer border border-white/10"
+                  title="Flip camera"
+                >
+                  Flip
+                </button>
+                <button
+                  onClick={() => cameraService.stopCamera()}
+                  className="px-1.5 py-0.5 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 text-[8px] font-telemetry cursor-pointer border border-rose-800/40"
+                  title="Stop camera"
+                >
+                  Close
+                </button>
+              </div>
             </div>
-          </button>
-        </div>
-
-        {/* Human Conversation Mode Active State Badge */}
-        <div
-          id="human_mode_state_pill"
-          className="flex items-center gap-2 mt-5 px-3 py-1 rounded-full bg-slate-900/80 border border-white/10 text-[11px] text-slate-300 backdrop-blur-md shadow-lg"
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              convState === 'USER_SPEAKING'
-                ? 'bg-cyan-400 animate-ping'
-                : convState === 'WAITING_FOR_CONTINUATION'
-                ? 'bg-purple-400 animate-pulse'
-                : convState === 'SILENT'
-                ? 'bg-emerald-400'
-                : state === 'speaking'
-                ? 'bg-rose-400 animate-pulse'
-                : 'bg-indigo-400'
-            }`}
-          />
-          <span className="font-medium text-white/90">Human Conversation Mode</span>
-          <span className="text-slate-600">•</span>
-          <span className="text-cyan-400 font-mono tracking-tight">
-            {convState === 'USER_SPEAKING' && 'Active speech'}
-            {convState === 'WAITING_FOR_CONTINUATION' && 'Waiting for continuation'}
-            {convState === 'BACKCHANNELING' && 'Backchanneling'}
-            {convState === 'SILENT' && 'Comfortable silence'}
-            {convState === 'EVALUATING_TURN' && 'Evaluating turn'}
-            {convState === 'INTERRUPTED' && 'Barge-in honored'}
-            {convState === 'SPEAKING' && 'Vocalizing'}
-            {(convState === 'LISTENING' || convState === 'IDLE') && 'Continuous session'}
-          </span>
-        </div>
-
-        {/* Real-time Waveform Canvas Visualizer */}
-        <div className="w-full max-w-xs sm:max-w-md h-16 mt-6 flex items-center justify-center">
-          <canvas
-            ref={canvasRef}
-            width={340}
-            height={64}
-            className="w-full h-full"
-          />
-        </div>
-
-        {/* Quick Conversational Gujarati Sparks & Starter Chips */}
-        <div
-          id="live_language_quick_chips"
-          className="flex flex-wrap items-center justify-center gap-2 mt-4 px-2 max-w-xl z-10"
-        >
-          <button
-            onClick={() => handleQuickPrompt('ગુજરાતીમાં બોલો', 'gu-IN')}
-            className="px-3 py-1.5 rounded-full text-xs font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-500/35 backdrop-blur-md transition-all active:scale-95 shadow-md flex items-center gap-1.5"
-            title="Ask MERY to speak in Gujarati"
-          >
-            <Sparkles className="w-3 h-3 text-amber-400" />
-            <span>ગુજરાતીમાં બોલો</span>
-          </button>
-          <button
-            onClick={() => handleQuickPrompt('કેમ છો, મેરી? તમારી સાથે વાત કરીને આનંદ થયો.', 'gu-IN')}
-            className="px-3 py-1.5 rounded-full text-xs font-medium bg-purple-500/15 hover:bg-purple-500/25 text-purple-200 border border-purple-500/35 backdrop-blur-md transition-all active:scale-95 shadow-md"
-            title="Friendly Gujarati greeting"
-          >
-            <span>કેમ છો, મેરી?</span>
-          </button>
-          <button
-            onClick={() => handleQuickPrompt('આજનો દિવસ કેવો રહેશે? મને કહો.', 'gu-IN')}
-            className="px-3 py-1.5 rounded-full text-xs font-medium bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-200 border border-cyan-500/35 backdrop-blur-md transition-all active:scale-95 shadow-md"
-            title="Ask how the day will be in Gujarati"
-          >
-            <span>આજનો દિવસ કેવો રહેશે?</span>
-          </button>
-          <button
-            onClick={() => handleQuickPrompt('Let’s converse in English now.', 'en-US')}
-            className="px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 backdrop-blur-md transition-all active:scale-95"
-            title="Switch back to English conversation"
-          >
-            <span>English</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Bottom Glassmorphic Control Dock */}
-      <div
-        id="bottom_control_dock"
-        className="w-full flex items-center justify-between px-5 py-3 rounded-2xl bg-slate-900/70 backdrop-blur-xl border border-white/10 shadow-2xl z-20"
-      >
-        {/* Power Connect/Disconnect */}
-        <button
-          id="dock_power_toggle"
-          onClick={handleTogglePower}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all ${
-            state === 'disconnected'
-              ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30'
-              : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30'
-          }`}
-        >
-          <Power className="w-4 h-4" />
-          <span>{state === 'disconnected' ? 'Start Session' : 'Disconnect'}</span>
-        </button>
-
-        {/* Interrupt Button (Visible when speaking) */}
-        {state === 'speaking' && (
-          <button
-            id="dock_interrupt_btn"
-            onClick={() => liveSession.handleUserInterrupt()}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold transition-all animate-pulse"
-          >
-            <Zap className="w-4 h-4 text-amber-400" />
-            <span>Interrupt MERY</span>
-          </button>
+          </div>
         )}
 
-        {/* Mute Mic Toggle */}
-        <div className="flex items-center gap-2">
-          {state !== 'disconnected' && (
+        {/* Top-Right Accessory Utility Bar */}
+        <div className="absolute top-4 right-4 sm:top-6 sm:right-8 flex items-center gap-1.5 sm:gap-2 z-20">
+          {/* Visual Mode Toggle: 3D Anime Avatar vs Hologram */}
+          {onToggleVisualMode && (
+            <div className="flex items-center bg-white/[0.04] border border-white/[0.06] p-0.5 rounded-full backdrop-blur-md">
+              <button
+                id="btn_mode_avatar"
+                onClick={() => visualMode !== 'avatar' && onToggleVisualMode()}
+                className={`px-2.5 py-1 rounded-full text-[9px] font-telemetry tracking-wider uppercase transition-all cursor-pointer ${
+                  visualMode === 'avatar'
+                    ? 'bg-[#00ff66] text-[#080809] font-bold shadow-[0_0_12px_rgba(0,255,102,0.4)]'
+                    : 'text-white/60 hover:text-white'
+                }`}
+              >
+                Anime
+              </button>
+              <button
+                id="btn_mode_hologram"
+                onClick={() => visualMode !== 'hologram' && onToggleVisualMode()}
+                className={`px-2.5 py-1 rounded-full text-[9px] font-telemetry tracking-wider uppercase transition-all cursor-pointer ${
+                  visualMode === 'hologram'
+                    ? 'bg-[#00ff66] text-[#080809] font-bold shadow-[0_0_12px_rgba(0,255,102,0.4)]'
+                    : 'text-white/60 hover:text-white'
+                }`}
+              >
+                Hologram
+              </button>
+            </div>
+          )}
+
+          {/* Language Cycle Toggle (GU -> HI -> EN) */}
+          <button
+            id="btn_toggle_language_dock"
+            onClick={() => handleToggleLanguage()}
+            className="px-2.5 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/80 hover:text-white text-[9px] font-telemetry flex items-center gap-1 transition-colors cursor-pointer"
+            title={`Language: ${
+              language === 'gu-IN' ? 'Gujarati (ગુજરાતી)' : language === 'hi-IN' ? 'Hindi (हिंदी)' : 'English'
+            } - Click to cycle`}
+          >
+            <Languages className="w-3 h-3 text-[#00ff66]" />
+            <span className="font-semibold text-[#00ff66]">
+              {language === 'gu-IN' ? 'GU' : language === 'hi-IN' ? 'HI' : 'EN'}
+            </span>
+          </button>
+
+          {/* Chat Text Visibility Toggle (showChatText = false by default) */}
+          <button
+            id="btn_toggle_chat_text"
+            onClick={toggleChatVisibility}
+            className={`px-2.5 py-1 rounded-full border text-[9px] font-telemetry flex items-center gap-1 transition-all cursor-pointer ${
+              isChatVisible
+                ? 'bg-[#00ff66]/15 border-[#00ff66]/50 text-[#00ff66] shadow-[0_0_8px_rgba(0,255,102,0.25)]'
+                : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-white/50 hover:text-white'
+            }`}
+            title={isChatVisible ? 'Hide Chat Timeline (Voice Mode)' : 'Show Chat Timeline on Screen'}
+          >
+            <MessageSquare className="w-3 h-3 text-[#00ff66]" />
+            <span>Chat: {isChatVisible ? 'ON' : 'OFF'}</span>
+          </button>
+
+          {/* Voice Audio Mute Toggle */}
+          {onToggleVoice && (
             <button
-              id="dock_mute_toggle"
-              onClick={handleToggleMute}
-              className={`p-2.5 rounded-xl border text-xs transition-all ${
-                isMuted
-                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                  : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-              }`}
-              title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+              id="btn-toggle-voice"
+              onClick={onToggleVoice}
+              className="p-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/70 hover:text-white transition-colors cursor-pointer"
+              title={voiceEnabled ? 'Mute Audio Output' : 'Enable Audio Output'}
             >
-              {isMuted ? <MicOff className="w-4 h-4 text-amber-400" /> : <Mic className="w-4 h-4 text-slate-300" />}
+              {voiceEnabled ? (
+                <Volume2 className="w-3.5 h-3.5 text-[#00ff66]" />
+              ) : (
+                <VolumeX className="w-3.5 h-3.5 text-white/40" />
+              )}
             </button>
           )}
 
-          {/* Master Volume Indicator */}
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-xs">
-            <Volume2 className="w-4 h-4 text-purple-400" />
-            <span>24kHz PCM</span>
+          {/* Full Chat Log Drawer Trigger */}
+          {onOpenTranscript && (
+            <button
+              id="btn_expand_chat_box"
+              onClick={onOpenTranscript}
+              className="px-2.5 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/70 hover:text-white text-[9px] font-telemetry flex items-center gap-1 transition-colors cursor-pointer"
+              title="Expand Full Neural Chat Box Console"
+            >
+              <MessageSquare className="w-3 h-3 text-[#00ff66]" />
+              <span>[{messageCount || 0}]</span>
+            </button>
+          )}
+        </div>
+
+        {/* Right-side Vertical Telemetry (Variation 11) */}
+        <div className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 hidden md:flex flex-col gap-6 pointer-events-none z-10">
+          <div className="vertical-telemetry">
+            {telemetryStatus}
           </div>
+        </div>
+
+        {/* Central Viz Container (Variation 11) */}
+        <div className="viz-container my-auto">
+          <div className="orb-hologram" />
+
+          {/* 3D Canvas Rig */}
+          <div className="w-full h-full relative z-10 flex items-center justify-center">
+            {children}
+          </div>
+
+          {/* Spoken Subtitle & Live Transcript (Variation 11) */}
+          <div
+            className="spoken-transcript"
+            id="spoken_subtitle_display_container"
+          >
+            {latestTranscript ? (
+              <span className="text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+                "{latestTranscript.text}"
+              </span>
+            ) : (
+              <span className="text-white/85 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+                I'm Mery. Tap the pulse or type below to synchronize.
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Active Tool or Screen Vision Notification Banner */}
+        {(isSharingScreen || activeTool) && (
+          <div className="absolute bottom-2 max-w-sm w-[90%] z-20">
+            {isSharingScreen ? (
+              <div
+                id="active_screen_pill"
+                className="px-3 py-1 rounded-full bg-[#00ff66]/10 border border-[#00ff66]/40 backdrop-blur-md flex items-center justify-between text-xs w-full shadow-[0_0_15px_rgba(0,255,102,0.15)]"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#00ff66] animate-pulse" />
+                  <span className="text-[#00ff66] font-telemetry tracking-wider text-[10px] uppercase">
+                    Vision: Active
+                  </span>
+                </div>
+                <button
+                  id="btn_stop_screen_pill"
+                  onClick={() => screenShareService.stopScreenShare()}
+                  className="text-[10px] text-rose-400 hover:text-rose-300 font-semibold underline cursor-pointer"
+                >
+                  Stop
+                </button>
+              </div>
+            ) : activeTool ? (
+              <div
+                id="active_tool_pill"
+                className="px-3 py-1 rounded-full bg-black/60 border border-white/10 backdrop-blur-md flex items-center gap-2 text-xs w-full"
+              >
+                {activeTool.name === 'openWebsite' && <Globe className="w-3 h-3 text-[#00ff66] animate-spin" />}
+                {activeTool.name === 'searchWeb' && <Search className="w-3 h-3 text-amber-400 animate-pulse" />}
+                {activeTool.name === 'getSystemStatus' && <Clock className="w-3 h-3 text-emerald-400" />}
+                {activeTool.name === 'executeDangerousAction' && <Shield className="w-3 h-3 text-rose-400 animate-pulse" />}
+                <span className="text-[10px] text-white/90 font-telemetry truncate">
+                  {activeTool.name} ({activeTool.status})
+                </span>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </main>
+
+      {/* Visual Chat Timeline (Visible ONLY when isChatVisible = true; hidden by default for voice-first experience) */}
+      {isChatVisible && messages && messages.length > 0 && (
+        <div
+          id="inline_chat_timeline_panel"
+          className="mx-4 sm:mx-8 mb-2 rounded-2xl bg-black/85 border border-[#00ff66]/30 backdrop-blur-xl p-3 shadow-2xl z-20 transition-all duration-300 animate-fadeIn"
+        >
+          <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-white/10 text-[10px] font-telemetry">
+            <span className="text-[#00ff66] font-semibold tracking-wider uppercase">MERY CONVERSATION TIMELINE</span>
+            <div className="flex items-center gap-2">
+              <span className="text-white/40">[{messages.length} msgs]</span>
+              <button
+                id="btn_collapse_inline_chat"
+                onClick={toggleChatVisibility}
+                className="hover:text-white text-[9px] cursor-pointer text-white/60 bg-white/5 px-2 py-0.5 rounded-md hover:bg-white/10"
+              >
+                Hide
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+            {messages.slice(-6).map((msg) => {
+              const isUser = msg.role === 'user';
+              return (
+                <div
+                  key={msg.id}
+                  className={`flex flex-col text-xs ${isUser ? 'items-end' : 'items-start'}`}
+                >
+                  <div className="flex items-center gap-1.5 text-[9px] font-telemetry mb-0.5 text-white/40">
+                    <span className={isUser ? 'text-white/70' : 'text-[#00ff66]'}>
+                      {isUser ? 'YOU' : 'MERY'}
+                    </span>
+                    {msg.timestamp && <span>· {msg.timestamp}</span>}
+                  </div>
+                  <div
+                    className={`px-3 py-1.5 rounded-xl max-w-[85%] break-words ${
+                      isUser
+                        ? 'bg-[#00ff66]/15 border border-[#00ff66]/30 text-white rounded-tr-none'
+                        : 'bg-white/5 border border-white/10 text-white/90 rounded-tl-none'
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Control Cluster (Variation 11) */}
+      <div className="bottom-cluster">
+        {/* Chat Bar (Variation 11) */}
+        <form className="chat-bar" onSubmit={handleInlineSubmit}>
+          <input
+            type="text"
+            id="hud_inline_chat_input"
+            value={inlineChatText}
+            onChange={(e) => setInlineChatText(e.target.value)}
+            placeholder={isThinking ? 'Synthesizing response..._' : 'Neural transmission..._'}
+            disabled={isThinking}
+          />
+          <button
+            id="btn_hud_inline_chat_send"
+            type="submit"
+            disabled={!inlineChatText.trim() || isThinking}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)' }}
+            className="cursor-pointer transition-transform active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Transmit neural message to MERY"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+            </svg>
+          </button>
+        </form>
+
+        {/* Action Row: 3-column Grid (Variation 11) */}
+        <div className="action-row">
+          {/* Left: Memory Utility Button */}
+          <button
+            className="utility-btn"
+            id="btn_open_memory_hud"
+            onClick={onOpenMemory}
+            title="Open Permanent Memory Subsystem"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2v10m0 0l-3-3m3 3l3-3M5 22h14" />
+            </svg>
+            <span>Memory</span>
+          </button>
+
+          {/* Center: Mic Trigger (72px Circular Button with Green Aura) */}
+          <button
+            className={`mic-trigger ${state === 'speaking' || state === 'listening' ? 'active-mic' : ''}`}
+            id="btn_dock_center_mic_connect"
+            onClick={state === 'speaking' ? () => liveSession.handleUserInterrupt() : handleTogglePower}
+            title={
+              state === 'disconnected'
+                ? 'Push to Synchronize'
+                : state === 'speaking'
+                ? 'Tap to Interrupt Speech'
+                : 'Disconnect Live Voice Session'
+            }
+          >
+            {state === 'connecting' ? (
+              <Sparkles className="w-7 h-7 text-[#080809] animate-spin" />
+            ) : state === 'speaking' ? (
+              <Zap className="w-7 h-7 text-[#080809] fill-current animate-pulse" />
+            ) : isMuted ? (
+              <MicOff className="w-7 h-7 text-[#080809]" />
+            ) : (
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM5 10v2a7 7 0 0 0 14 0v-2h-2v2a5 5 0 0 1-10 0v-2H5zM11 19v3h2v-3h-2z" />
+              </svg>
+            )}
+          </button>
+
+          {/* Right: Config Utility Button */}
+          <button
+            className="utility-btn"
+            id="btn_open_config_hud"
+            onClick={onOpenSettings}
+            title="Open System Configuration & API Keys"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1V15a2 2 0 0 1-2-2 2 2 0 0 1 2-2v-.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2v.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            <span>Config</span>
+          </button>
+        </div>
+
+        {/* Quick Access Bar for Secondary Utilities (Tools, Screen Vision, Agent Dev, System Control) */}
+        <div className="mt-3 pt-2 border-t border-white/[0.04] flex items-center justify-between text-[10px] font-telemetry text-white/50 px-1">
+          <button
+            id="btn_tools_shortcut"
+            onClick={onOpenTools}
+            className="hover:text-[#00ff66] flex items-center gap-1 transition-colors cursor-pointer"
+            title="System Tools Nexus"
+          >
+            <Zap className="w-3 h-3 text-[#00ff66]" />
+            <span>Tools</span>
+          </button>
+          {onOpenSystemControl && (
+            <button
+              id="btn_system_control_shortcut"
+              onClick={onOpenSystemControl}
+              className="hover:text-[#00ff66] flex items-center gap-1 transition-colors cursor-pointer"
+              title="System Control Dashboard"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Control</span>
+            </button>
+          )}
+          <button
+            id="btn_dock_screen_share"
+            onClick={async () => {
+              if (isSharingScreen) {
+                screenShareService.stopScreenShare();
+              } else {
+                const started = await screenShareService.startScreenShare();
+                if (!started && screenShareService.isInIframe()) {
+                  screenShareService.requestAllowModal();
+                }
+              }
+            }}
+            className={`flex items-center gap-1 transition-colors cursor-pointer ${
+              isSharingScreen ? 'text-[#00ff66] font-bold' : 'hover:text-[#00ff66]'
+            }`}
+            title="Toggle Visual Screen Vision"
+          >
+            <Monitor className={`w-3 h-3 ${isSharingScreen ? 'text-[#00ff66]' : ''}`} />
+            <span>Vision</span>
+          </button>
+          <button
+            id="btn_dock_camera"
+            onClick={async () => {
+              if (isCameraActive) {
+                cameraService.stopCamera();
+              } else {
+                await cameraService.startCamera('user');
+              }
+            }}
+            className={`flex items-center gap-1 transition-colors cursor-pointer ${
+              isCameraActive ? 'text-[#00ff66] font-bold' : 'hover:text-[#00ff66]'
+            }`}
+            title="Toggle Live Camera Mode"
+          >
+            {isCameraActive ? <Camera className="w-3 h-3 text-[#00ff66]" /> : <CameraOff className="w-3 h-3" />}
+            <span>Camera</span>
+          </button>
+          {onOpenAgentDev && (
+            <button
+              id="btn_agents_shortcut"
+              onClick={onOpenAgentDev}
+              className="hover:text-[#00ff66] flex items-center gap-1 transition-colors cursor-pointer"
+              title="Agent Dev Studio"
+            >
+              <Cpu className="w-3 h-3" />
+              <span>Studio</span>
+            </button>
+          )}
+          {onOpenEmotion && (
+            <button
+              id="btn_emotion_shortcut"
+              onClick={onOpenEmotion}
+              className="hover:text-[#00ff66] flex items-center gap-1 transition-colors cursor-pointer"
+              title="Emotion Radar"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>Radar</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

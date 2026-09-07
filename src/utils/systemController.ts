@@ -15,7 +15,7 @@ export class SystemController {
     { id: 'f-1', name: 'm4-mery-companion-spec.md', path: '/projects/m4/spec.md', size: '14.2 KB', type: 'document', updatedAt: 'Today, 20:15', content: 'MERY system specification and voice-native neural blueprint.' },
     { id: 'f-2', name: 'ambient-synthesizer-weights.bin', path: '/neural/weights.bin', size: '184 MB', type: 'code', updatedAt: 'Yesterday', content: 'Acoustic resonance weights.' },
     { id: 'f-3', name: 'video-script-ai-companion.docx', path: '/creators/youtube/script.docx', size: '48.1 KB', type: 'document', updatedAt: '2 days ago', content: 'TECH GPT YouTube script draft on MERY and real-time voice AI.' },
-    { id: 'f-4', name: 'aurora-rose-theme-tokens.json', path: '/design/theme.json', size: '8.4 KB', type: 'code', updatedAt: '3 days ago', content: '{"primary":"#9D7BFF","accent":"#E7B7A5"}' },
+    { id: 'f-4', name: 'neural-blue-theme-tokens.json', path: '/design/theme.json', size: '8.4 KB', type: 'code', updatedAt: '3 days ago', content: '{"primary":"#00A3FF","accent":"#38BDF8"}' },
     { id: 'f-5', name: 'binaural-rain-soundscape.flac', path: '/audio/rain.flac', size: '32.6 MB', type: 'audio', updatedAt: 'Last week' },
   ];
 
@@ -30,8 +30,8 @@ export class SystemController {
   ];
 
   private smartDevices: SmartHomeDevice[] = [
-    { id: 'dev-light', name: 'Studio Aurora Ambient Light', type: 'light', state: true, value: '#9D7BFF' },
-    { id: 'dev-desk', name: 'Desk Halo Glow', type: 'light', state: true, value: '#E7B7A5' },
+    { id: 'dev-light', name: 'Studio Neural Cyan Ambient Light', type: 'light', state: true, value: '#00A3FF' },
+    { id: 'dev-desk', name: 'Desk Halo Glow', type: 'light', state: true, value: '#38BDF8' },
     { id: 'dev-temp', name: 'Studio Thermostat', type: 'thermostat', state: true, value: '70°F' },
     { id: 'dev-sound', name: 'Acoustic Soundstage', type: 'sound', state: true, value: 'Binaural 432Hz' },
   ];

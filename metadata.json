@@ -1,6 +1,6 @@
 {
-  "name": "M4 - MERY Companion",
-  "description": "Luxury futuristic AI companion MERY for the M4 system, featuring warm conversational intelligence in the Aurora Rose visual theme.",
-  "requestFramePermissions": ["microphone"],
+  "name": "MERY | Mobile Neural Interface",
+  "description": "MERY | Mobile Neural Interface - Voice-native AI companion and system interface for M4, featuring clean cyber-minimalist neural intelligence.",
+  "requestFramePermissions": ["microphone", "camera", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

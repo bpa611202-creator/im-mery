@@ -4,14 +4,18 @@ export class EmbeddingService {
   private geminiClient: GoogleGenAI | null = null;
   private quotaCooldownUntil: number = 0;
 
-  constructor() {
+  private getClient(): GoogleGenAI | null {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey) {
+    if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
+      return null;
+    }
+    if (!this.geminiClient) {
       this.geminiClient = new GoogleGenAI({
         apiKey,
         httpOptions: { headers: { "User-Agent": "aistudio-build-memory" } },
       });
     }
+    return this.geminiClient;
   }
 
   /**
@@ -25,18 +29,26 @@ export class EmbeddingService {
       return { vector: new Array(64).fill(0), model: "local-fallback-v1" };
     }
 
-    if (this.geminiClient && Date.now() >= this.quotaCooldownUntil) {
+    const client = this.getClient();
+    if (client && Date.now() >= this.quotaCooldownUntil) {
       try {
-        const response: any = await this.geminiClient.models.embedContent({
-          model: "text-embedding-004",
+        // Enforce 2.5-second timeout to prevent cloud embedding from stalling requests
+        const embedPromise = client.models.embedContent({
+          model: "gemini-embedding-2-preview",
           contents: clean,
         });
 
-        const values = response.embedding?.values;
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Embedding request timeout")), 2500)
+        );
+
+        const response: any = await Promise.race([embedPromise, timeoutPromise]);
+
+        const values = response?.embedding?.values || response?.embeddings?.[0]?.values;
         if (Array.isArray(values) && values.length > 0) {
           return {
             vector: values,
-            model: "text-embedding-004",
+            model: "gemini-embedding-2-preview",
           };
         }
       } catch (err: any) {

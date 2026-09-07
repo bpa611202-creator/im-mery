@@ -57,7 +57,7 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
       <div className="max-w-4xl mx-auto">
         <form
           onSubmit={handleSubmit}
-          className="relative flex items-end gap-2 p-2 sm:p-2.5 rounded-2xl bg-[#140F24]/85 border border-[#E7B7A5]/25 shadow-[0_8px_32px_rgba(0,0,0,0.6),0_0_20px_rgba(157,123,255,0.12)] backdrop-blur-2xl transition-all focus-within:border-[#9D7BFF]/60 focus-within:shadow-[0_0_25px_rgba(157,123,255,0.25)]"
+          className="relative flex items-end gap-2 p-2 sm:p-2.5 rounded-2xl bg-[#081426]/85 border border-[#00A3FF]/25 shadow-[0_8px_32px_rgba(0,0,0,0.6),0_0_20px_rgba(0,163,255,0.12)] backdrop-blur-2xl transition-all focus-within:border-[#0066FF]/60 focus-within:shadow-[0_0_25px_rgba(0,163,255,0.25)]"
         >
           {/* Microphone Voice Button */}
           <button
@@ -67,8 +67,8 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
             disabled={disabled}
             className={`relative flex-shrink-0 p-2.5 sm:p-3 rounded-xl transition-all duration-300 ${
               isListening
-                ? 'bg-gradient-to-tr from-[#9D7BFF] to-[#E7B7A5] text-[#07060D] shadow-[0_0_25px_rgba(198,160,255,0.6)] animate-pulse'
-                : 'bg-[#1D1533] text-[#E7B7A5] hover:bg-[#2B1D4B] hover:text-white border border-[#E7B7A5]/20'
+                ? 'bg-gradient-to-tr from-[#0066FF] to-[#00A3FF] text-[#07060D] shadow-[0_0_25px_rgba(0,163,255,0.6)] animate-pulse'
+                : 'bg-[#081426] text-[#00A3FF] hover:bg-[#0066FF] hover:text-white border border-[#00A3FF]/20'
             }`}
             title={isListening ? 'Listening to your voice... (Click to finish)' : 'Speak directly to MERY'}
           >
@@ -78,7 +78,7 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
               <Mic className="w-5 h-5" />
             )}
             {isListening && (
-              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#E7B7A5] animate-ping" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#00A3FF] animate-ping" />
             )}
           </button>
 
@@ -109,7 +109,7 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
               onClick={onToggleAutoSpeak}
               className={`p-2 rounded-xl text-xs transition-all ${
                 autoSpeak
-                  ? 'bg-[#9D7BFF]/20 text-[#E7B7A5] border border-[#E7B7A5]/30 shadow-sm'
+                  ? 'bg-[#0066FF]/20 text-[#00A3FF] border border-[#00A3FF]/30 shadow-sm'
                   : 'text-white/30 hover:text-white/70'
               }`}
               title={autoSpeak ? 'Auto-speak responses is ON' : 'Auto-speak responses is OFF'}
@@ -133,7 +133,7 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
               disabled={!text.trim() || disabled}
               className={`p-2.5 rounded-xl font-medium transition-all ${
                 text.trim() && !disabled
-                  ? 'bg-gradient-to-r from-[#9D7BFF] via-[#C6A0FF] to-[#E7B7A5] text-[#0A0714] shadow-[0_0_15px_rgba(231,183,165,0.4)] hover:brightness-110'
+                  ? 'bg-gradient-to-r from-[#0066FF] via-[#38BDF8] to-[#00A3FF] text-[#0A0714] shadow-[0_0_15px_rgba(0,163,255,0.4)] hover:brightness-110'
                   : 'bg-white/5 text-white/20 cursor-not-allowed'
               }`}
               title="Send to MERY (Enter)"
@@ -146,7 +146,7 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
         {/* Footnote status */}
         <div className="flex items-center justify-between px-3 pt-1.5 text-[11px] text-white/40 font-telemetry">
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#E7B7A5]" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[#00A3FF]" />
             M4 SYSTEM // MERY COMPANION INTERFACE
           </span>
           <span className="hidden sm:inline text-white/30">

@@ -25,14 +25,18 @@ export class ServerMemoryService {
   private geminiClient: GoogleGenAI | null = null;
   private extractionQuotaCooldownUntil: number = 0;
 
-  constructor() {
+  private getGeminiClient(): GoogleGenAI | null {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey) {
+    if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
+      return null;
+    }
+    if (!this.geminiClient) {
       this.geminiClient = new GoogleGenAI({
         apiKey,
         httpOptions: { headers: { "User-Agent": "aistudio-build-memory" } },
       });
     }
+    return this.geminiClient;
   }
 
   // ---------------------------------------------------------------------------
@@ -266,7 +270,8 @@ ${lines.join("\n")}]`;
     history?: Array<{ role: string; content: string }>
   ): Promise<MemoryCandidate[]> {
     // If Gemini client is available, perform intelligent extraction
-    if (this.geminiClient && Date.now() >= this.extractionQuotaCooldownUntil) {
+    const client = this.getGeminiClient();
+    if (client && Date.now() >= this.extractionQuotaCooldownUntil) {
       try {
         const extractionPrompt = `You are the Long-Term Memory Extraction Subsystem for MERY.
 Analyze this user statement and determine if it contains durable personal facts, preferences, goals, projects, habits, or entities that should be remembered across years of conversation.
@@ -304,7 +309,7 @@ Format:
   }
 ]`;
 
-        const response: any = await this.geminiClient.models.generateContent({
+        const response: any = await client.models.generateContent({
           model: "gemini-3.8-flash",
           contents: extractionPrompt,
           config: {

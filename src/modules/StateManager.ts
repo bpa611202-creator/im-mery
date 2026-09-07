@@ -1,5 +1,6 @@
 import {
   AssistantState,
+  AIStatus,
   ConversationState,
   EmotionType,
   ToolExecutionRecord,
@@ -7,15 +8,17 @@ import {
 } from '../types';
 
 export type StateListener = (state: AssistantState) => void;
+export type AIStatusListener = (status: AIStatus) => void;
 export type ConversationStateListener = (convState: ConversationState, analysis?: TurnTakingAnalysis) => void;
 export type VolumeListener = (userVolume: number, meryVolume: number) => void;
 export type ToolListener = (tool: ToolExecutionRecord | null) => void;
 export type NotificationListener = (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
-export type SpokenLanguage = 'gu-IN' | 'en-US' | 'auto';
+export type SpokenLanguage = 'gu-IN' | 'hi-IN' | 'en-IN' | 'en-US' | 'auto';
 export type LanguageListener = (lang: SpokenLanguage) => void;
 
 export class StateManager {
   private state: AssistantState = 'disconnected';
+  private aiStatus: AIStatus = 'IDLE';
   private convState: ConversationState = 'IDLE';
   private lastAnalysis: TurnTakingAnalysis | null = null;
   private userVolume: number = 0;
@@ -31,6 +34,7 @@ export class StateManager {
   private language: SpokenLanguage = (typeof window !== 'undefined' && (localStorage.getItem('mery_spoken_language') as SpokenLanguage)) || 'gu-IN';
 
   private stateListeners: Set<StateListener> = new Set();
+  private aiStatusListeners: Set<AIStatusListener> = new Set();
   private convStateListeners: Set<ConversationStateListener> = new Set();
   private volumeListeners: Set<VolumeListener> = new Set();
   private toolListeners: Set<ToolListener> = new Set();
@@ -41,11 +45,44 @@ export class StateManager {
     return this.state;
   }
 
+  getAIStatus(): AIStatus {
+    return this.aiStatus;
+  }
+
+  setAIStatus(status: AIStatus) {
+    if (this.aiStatus === status) return;
+    const oldStatus = this.aiStatus;
+    this.aiStatus = status;
+    console.log(`[StateManager] AIStatus: ${oldStatus} -> ${status}`);
+    this.aiStatusListeners.forEach((listener) => {
+      try {
+        listener(status);
+      } catch (e) {
+        console.error('Error in aiStatus listener:', e);
+      }
+    });
+  }
+
+  onAIStatusChange(listener: AIStatusListener): () => void {
+    this.aiStatusListeners.add(listener);
+    return () => this.aiStatusListeners.delete(listener);
+  }
+
   setState(newState: AssistantState) {
     if (this.state === newState) return;
     const oldState = this.state;
     this.state = newState;
     console.log(`[StateManager] Transition: ${oldState} -> ${newState}`);
+
+    // Automatically sync AIStatus when standard states change unless overridden
+    if (newState === 'speaking') {
+      this.setAIStatus('SPEAKING');
+    } else if (newState === 'listening') {
+      this.setAIStatus('LISTENING');
+    } else if (newState === 'disconnected') {
+      this.setAIStatus('IDLE');
+    }
+
     this.stateListeners.forEach((listener) => {
       try {
         listener(newState);
@@ -146,23 +183,56 @@ export class StateManager {
     return this.language;
   }
 
-  setLanguage(lang: SpokenLanguage) {
-    if (this.language === lang) return;
-    this.language = lang;
+  setActiveLanguage(lang: SpokenLanguage | string) {
+    let normalized: SpokenLanguage = 'gu-IN';
+    const l = (lang || '').toLowerCase();
+    if (l.startsWith('gu') || l.includes('gujarat')) {
+      normalized = 'gu-IN';
+    } else if (l.startsWith('hi') || l.includes('hindi')) {
+      normalized = 'hi-IN';
+    } else if (l.includes('us')) {
+      normalized = 'en-US';
+    } else if (l.startsWith('en')) {
+      normalized = 'en-IN';
+    } else if (l === 'auto') {
+      normalized = 'auto';
+    }
+
+    console.log('[LANGUAGE] active:', normalized);
+
+    const changed = this.language !== normalized;
+    this.language = normalized;
+
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem('mery_spoken_language', lang);
+        localStorage.setItem('mery_spoken_language', normalized);
       } catch {}
     }
-    const label = lang === 'gu-IN' ? 'ગુજરાતી (Gujarati)' : lang === 'en-US' ? 'English (US)' : 'Auto Detect';
-    this.notify(`Spoken language: ${label}`, 'info');
+
+    const label =
+      normalized === 'gu-IN'
+        ? 'ગુજરાતી (Gujarati)'
+        : normalized === 'hi-IN'
+        ? 'हिंदी (Hindi)'
+        : normalized === 'en-IN' || normalized === 'en-US'
+        ? 'English'
+        : 'Auto Detect';
+
+    if (changed) {
+      this.notify(`Spoken language: ${label}`, 'info');
+    }
+
     this.languageListeners.forEach((listener) => {
       try {
-        listener(lang);
+        listener(normalized);
       } catch (e) {
         console.error('Error in language listener:', e);
       }
     });
+  }
+
+  setLanguage(lang: SpokenLanguage | string) {
+    this.setActiveLanguage(lang as SpokenLanguage);
   }
 
   onLanguageChange(listener: LanguageListener): () => void {
@@ -235,3 +305,7 @@ export class StateManager {
 }
 
 export const stateManager = new StateManager();
+
+export function setActiveLanguage(lang: SpokenLanguage | string): void {
+  stateManager.setActiveLanguage(lang);
+}
