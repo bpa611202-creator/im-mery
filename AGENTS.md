@@ -1,6 +1,6 @@
 # PROJECT RULES FOR MERY
 
-MERY is a voice-native personal AI companion and system interface for M4.
+MERY is a voice-native personal AI companion and system interface.
 Always prioritize real integrations over fake or placeholder systems.
 
 ## Companion Identity & Directives (User Directives)

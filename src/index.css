@@ -213,6 +213,8 @@ html, body {
   opacity: 0.92;
   padding-bottom: 8px;
   z-index: 20;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* ============================================================
@@ -380,4 +382,32 @@ html, body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 255, 102, 0.4);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

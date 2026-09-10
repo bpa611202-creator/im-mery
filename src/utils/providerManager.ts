@@ -102,8 +102,8 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   provider: 'local_tts',
   voiceId: 'Kore',
-  speed: 0.95,
-  pitch: 1.05,
+  speed: 1.0,
+  pitch: 1.0,
   stability: 0.65,
   similarityBoost: 0.75,
   style: 0.35,
@@ -135,7 +135,15 @@ class ProviderManager {
 
       const savedVoice = localStorage.getItem('mery_voice_settings');
       if (savedVoice) {
-        this.voiceSettings = { ...DEFAULT_VOICE_SETTINGS, ...JSON.parse(savedVoice) };
+        const parsed = JSON.parse(savedVoice);
+        // Sanitize stale pitch/speed from previous sessions that caused robot voice
+        if (typeof parsed.pitch === 'number' && (parsed.pitch > 1.08 || parsed.pitch < 0.92)) {
+          parsed.pitch = 1.0;
+        }
+        if (typeof parsed.speed === 'number' && (parsed.speed > 1.2 || parsed.speed < 0.8)) {
+          parsed.speed = 1.0;
+        }
+        this.voiceSettings = { ...DEFAULT_VOICE_SETTINGS, ...parsed };
       }
     } catch {
       this.providers = [...DEFAULT_PROVIDERS];

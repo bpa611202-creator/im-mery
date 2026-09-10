@@ -141,7 +141,7 @@ export const MeryMemoryDrawer: React.FC<MeryMemoryDrawerProps> = ({
                   type="text"
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
-                  placeholder="e.g. 'Prefers dark mode, nocturnal coder, building M4'"
+                  placeholder="e.g. 'Prefers dark mode, nocturnal coder, building projects'"
                   className="flex-1 px-3 py-2 text-xs rounded-xl bg-[#1A1330] border border-[#E7B7A5]/20 text-white placeholder:text-white/30 outline-none focus:border-[#9D7BFF]"
                 />
                 <button

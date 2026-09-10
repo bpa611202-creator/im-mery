@@ -271,7 +271,7 @@ export class ToolManager {
         } catch {}
 
         return {
-          companion: 'MERY AI Assistant (M4 System)',
+          companion: 'MERY AI Assistant',
           currentTime: new Date().toLocaleTimeString(),
           currentDate: new Date().toLocaleDateString(),
           theme: stateManager.getTheme(),

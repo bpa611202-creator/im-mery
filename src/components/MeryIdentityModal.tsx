@@ -35,14 +35,14 @@ export const MeryIdentityModal: React.FC<MeryIdentityModalProps> = ({ isOpen, on
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-white">
-                    M4 SYSTEM // MERY
+                    MERY
                   </h2>
                   <span className="px-2 py-0.5 rounded-full bg-[#9D7BFF]/20 text-[#C6A0FF] border border-[#9D7BFF]/30 text-xs font-telemetry">
                     IDENTITY SPEC
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-[#E7B7A5]">
-                  Primary Personality & Face of the M4 Architecture
+                  Voice-Native AI Companion & Neural Interface
                 </p>
               </div>
             </div>

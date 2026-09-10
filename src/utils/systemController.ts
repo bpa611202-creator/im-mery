@@ -5,14 +5,14 @@ export class SystemController {
     { id: 'app-vscode', name: 'Visual Studio Code', category: 'dev', iconName: 'Code2', status: 'running', cpuUsage: 14, url: 'https://github.com' },
     { id: 'app-chrome', name: 'Google Chrome', category: 'productivity', iconName: 'Globe', status: 'running', cpuUsage: 22, url: 'https://google.com' },
     { id: 'app-figma', name: 'Figma — UI System', category: 'creative', iconName: 'Layout', status: 'minimized', cpuUsage: 8, url: 'https://figma.com' },
-    { id: 'app-terminal', name: 'Zsh Terminal [M4 Core]', category: 'dev', iconName: 'Terminal', status: 'running', cpuUsage: 4 },
+    { id: 'app-terminal', name: 'Zsh Terminal [Neural Core]', category: 'dev', iconName: 'Terminal', status: 'running', cpuUsage: 4 },
     { id: 'app-spotify', name: 'Spotify — Ambient Focus', category: 'media', iconName: 'Music', status: 'running', cpuUsage: 6 },
     { id: 'app-obsidian', name: 'Obsidian Notes Vault', category: 'productivity', iconName: 'FileText', status: 'closed', cpuUsage: 0 },
     { id: 'app-blender', name: 'Blender 4.2 3D', category: 'creative', iconName: 'Box', status: 'closed', cpuUsage: 0 },
   ];
 
   private files: VirtualFile[] = [
-    { id: 'f-1', name: 'm4-mery-companion-spec.md', path: '/projects/m4/spec.md', size: '14.2 KB', type: 'document', updatedAt: 'Today, 20:15', content: 'MERY system specification and voice-native neural blueprint.' },
+    { id: 'f-1', name: 'mery-companion-spec.md', path: '/projects/mery/spec.md', size: '14.2 KB', type: 'document', updatedAt: 'Today, 20:15', content: 'MERY system specification and voice-native neural blueprint.' },
     { id: 'f-2', name: 'ambient-synthesizer-weights.bin', path: '/neural/weights.bin', size: '184 MB', type: 'code', updatedAt: 'Yesterday', content: 'Acoustic resonance weights.' },
     { id: 'f-3', name: 'video-script-ai-companion.docx', path: '/creators/youtube/script.docx', size: '48.1 KB', type: 'document', updatedAt: '2 days ago', content: 'TECH GPT YouTube script draft on MERY and real-time voice AI.' },
     { id: 'f-4', name: 'neural-blue-theme-tokens.json', path: '/design/theme.json', size: '8.4 KB', type: 'code', updatedAt: '3 days ago', content: '{"primary":"#00A3FF","accent":"#38BDF8"}' },
@@ -26,7 +26,7 @@ export class SystemController {
 
   private notes: SystemNote[] = [
     { id: 'n-1', title: 'MERY Voice Synthesis Notes', content: 'Natural conversation requires micro-pauses, human breathing markers, and warm resonance.', updatedAt: 'Just now' },
-    { id: 'n-2', title: 'M4 Architecture Roadmap', content: 'Full-duplex microphone listening with instant barge-in and proactive conversational timing.', updatedAt: 'Yesterday' },
+    { id: 'n-2', title: 'Architecture Roadmap', content: 'Full-duplex microphone listening with instant barge-in and proactive conversational timing.', updatedAt: 'Yesterday' },
   ];
 
   private smartDevices: SmartHomeDevice[] = [

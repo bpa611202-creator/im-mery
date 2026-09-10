@@ -16,6 +16,24 @@ export type NotificationListener = (message: string, type?: 'info' | 'success' |
 export type SpokenLanguage = 'gu-IN' | 'hi-IN' | 'en-IN' | 'en-US' | 'auto';
 export type LanguageListener = (lang: SpokenLanguage) => void;
 
+function dispatchSafe(fn: () => void) {
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(() => {
+      try {
+        fn();
+      } catch (e) {
+        console.error('Error in state listener:', e);
+      }
+    });
+  } else {
+    try {
+      fn();
+    } catch (e) {
+      console.error('Error in state listener:', e);
+    }
+  }
+}
+
 export class StateManager {
   private state: AssistantState = 'disconnected';
   private aiStatus: AIStatus = 'IDLE';
@@ -55,11 +73,7 @@ export class StateManager {
     this.aiStatus = status;
     console.log(`[StateManager] AIStatus: ${oldStatus} -> ${status}`);
     this.aiStatusListeners.forEach((listener) => {
-      try {
-        listener(status);
-      } catch (e) {
-        console.error('Error in aiStatus listener:', e);
-      }
+      dispatchSafe(() => listener(status));
     });
   }
 
@@ -84,11 +98,7 @@ export class StateManager {
     }
 
     this.stateListeners.forEach((listener) => {
-      try {
-        listener(newState);
-      } catch (e) {
-        console.error('Error in state listener:', e);
-      }
+      dispatchSafe(() => listener(newState));
     });
   }
 
@@ -105,11 +115,7 @@ export class StateManager {
     }
     console.log(`[StateManager] ConversationState: ${oldConvState} -> ${newConvState}`, analysis ? `(${analysis.reason})` : '');
     this.convStateListeners.forEach((listener) => {
-      try {
-        listener(newConvState, analysis || this.lastAnalysis || undefined);
-      } catch (e) {
-        console.error('Error in convState listener:', e);
-      }
+      dispatchSafe(() => listener(newConvState, analysis || this.lastAnalysis || undefined));
     });
   }
 
@@ -223,11 +229,7 @@ export class StateManager {
     }
 
     this.languageListeners.forEach((listener) => {
-      try {
-        listener(normalized);
-      } catch (e) {
-        console.error('Error in language listener:', e);
-      }
+      dispatchSafe(() => listener(normalized));
     });
   }
 
@@ -267,7 +269,9 @@ export class StateManager {
         this.toolHistory = [tool, ...this.toolHistory.slice(0, 49)];
       }
     }
-    this.toolListeners.forEach((l) => l(tool));
+    this.toolListeners.forEach((l) => {
+      dispatchSafe(() => l(tool));
+    });
   }
 
   getActiveTool(): ToolExecutionRecord | null {
@@ -284,7 +288,9 @@ export class StateManager {
   }
 
   notify(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
-    this.notificationListeners.forEach((l) => l(message, type));
+    this.notificationListeners.forEach((l) => {
+      dispatchSafe(() => l(message, type));
+    });
   }
 
   onNotification(listener: NotificationListener): () => void {

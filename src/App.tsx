@@ -12,7 +12,6 @@ import { ApiManagementModal } from './components/ApiManagementModal';
 import { MissingKeyModal } from './components/MissingKeyModal';
 import { ScreenAllowModal } from './components/ScreenAllowModal';
 import { AgentDevStudioModal } from './components/AgentDevStudioModal';
-import { JarvisHologram3D } from './components/JarvisHologram3D';
 import { AnimeAvatar3D } from './components/AnimeAvatar3D';
 import { liveSession } from './modules/LiveSession';
 import { voiceService } from './utils/audio';
@@ -59,7 +58,7 @@ const INITIAL_MEMORIES: MeryMemory[] = [
   },
   {
     id: 'mem-2',
-    text: 'Active in M4 luxury system with voice-native interaction.',
+    text: 'Active in system with voice-native interaction.',
     category: 'insight',
     createdAt: 'System Bootstrap',
   },
@@ -92,7 +91,6 @@ export default function App() {
 
   const [currentEmotion, setCurrentEmotion] = useState<EmotionType>('warm');
   const [hologramState, setHologramState] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
-  const [visualMode, setVisualMode] = useState<'avatar' | 'hologram'>('avatar');
   const [userLiveTranscript, setUserLiveTranscript] = useState<string>('');
   const [merySpokenSubtitle, setMerySpokenSubtitle] = useState<string>(
     "Hey, I'm MERY. What's on your mind today?"
@@ -219,6 +217,28 @@ export default function App() {
     };
   }, []);
 
+  // FIX: keep the on-screen spoken subtitle in sync with real-time LIVE voice replies too.
+  // Previously only speakResponse() (typed messages) and the greeting ever called
+  // setMerySpokenSubtitle, so live-voice replies from Gemini Live never updated the caption —
+  // it stayed frozen on whatever text was last set (usually the greeting).
+  useEffect(() => {
+    const unsubLiveCaption = liveSession.onTranscript((text, role) => {
+      if (role === 'model' && text && text.trim()) {
+        setMerySpokenSubtitle(text);
+      }
+    });
+    return () => unsubLiveCaption();
+  }, []);
+
+  // Sync spoken language with voiceService
+  useEffect(() => {
+    voiceService.setLanguage(stateManager.getLanguage());
+    const unsubLang = stateManager.onLanguageChange((lang) => {
+      voiceService.setLanguage(lang);
+    });
+    return () => unsubLang();
+  }, []);
+
   // Save messages to localStorage
   useEffect(() => {
     try {
@@ -323,7 +343,7 @@ export default function App() {
             setHologramState('listening');
           },
           () => {},
-          { pitch: 1.08, rate: 1.05 }
+          { pitch: 1.0, rate: 1.0 }
         );
       },
       onBargeIn: () => {
@@ -339,13 +359,16 @@ export default function App() {
           handleSendMessage("Hey MERY.");
         }
       },
-      onRecognitionStateChange: (state) => {
-        setHologramState((current) => {
-          if (state === 'listening' && current !== 'speaking' && current !== 'thinking') {
-            return 'idle';
-          }
-          return current;
-        });
+      onRecognitionStateChange: (recState) => {
+        const current = hologramStateRef.current;
+        if (recState === 'listening' && current !== 'speaking' && current !== 'thinking') {
+          stateManager.setState('listening');
+          stateManager.setAIStatus('LISTENING');
+          setHologramState('listening');
+        } else if (recState === 'idle' && current !== 'speaking' && current !== 'thinking') {
+          stateManager.setAIStatus('IDLE');
+          setHologramState('idle');
+        }
       },
       onError: (err) => {
         console.warn('Speech engine advisory:', err);
@@ -527,10 +550,12 @@ export default function App() {
 
     // High quality natural humanoid browser voice with multimodal emotional prosody modulation
     const voiceSettings = providerManager.getVoiceSettings();
+    const naturalPitch = Math.min(1.04, Math.max(0.96, (voiceMod?.pitch || 1.0) * (voiceSettings?.pitch || 1.0)));
+    const naturalRate = Math.min(1.08, Math.max(0.92, (voiceMod?.rate || 1.0) * (voiceSettings?.speed || 1.0)));
     const adjustedParams = {
-      pitch: voiceMod.pitch * voiceSettings.pitch,
-      rate: voiceMod.rate * voiceSettings.speed,
-      volume: voiceMod.volume,
+      pitch: naturalPitch,
+      rate: naturalRate,
+      volume: voiceMod?.volume ?? 1.0,
     };
     logger.log('INFO', 'tts', `Vocalizing response via Native Humanoid Engine (pitch=${adjustedParams.pitch.toFixed(2)}, rate=${adjustedParams.rate.toFixed(2)}, tone=${voiceMod.deliveryTone})`);
     voiceService.speakBrowserVoice(
@@ -554,11 +579,11 @@ export default function App() {
     // 1. Establish connection to Gemini Live session link
     const connected = await liveSession.connect();
     if (!connected) {
-      liveSession.setGreetingActive(false);
-      return;
+      console.warn('[Voice Session] Live API session offline, starting Browser Full-Duplex Engine...');
+      startFullDuplexEngine();
     }
 
-    // 2. Select authentic JARVIS voice greeting based on active language
+    // 2. Select authentic voice greeting based on active language
     const lang = stateManager.getLanguage();
     const isGujarati = lang === 'gu-IN';
     const greetingText = isGujarati
@@ -579,7 +604,7 @@ export default function App() {
     };
     setMessages((prev) => [...prev, greetingMsg]);
 
-    // 4. Vocalize introduction with warm, confident JARVIS demeanor
+    // 4. Vocalize introduction with warm, friendly female demeanor
     voiceService.speakBrowserVoice(
       greetingText,
       () => {
@@ -595,7 +620,7 @@ export default function App() {
         stateManager.setState('listening');
         setHologramState('listening');
       },
-      { pitch: 1.04, rate: 0.96 }
+      { pitch: 1.0, rate: 1.0 }
     );
   };
 
@@ -845,7 +870,7 @@ export default function App() {
       const fallbackMsg: ChatMessage = {
         id: `m-err-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
         role: 'model',
-        content: "I'm right here with you in M4. Mind sharing that with me again?",
+        content: "I'm right here with you. Mind sharing that with me again?",
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         emotion: 'supportive',
       };
@@ -932,8 +957,6 @@ export default function App() {
           onSendMessage={handleSendMessage}
           isThinking={isThinking}
           messageCount={messages.length}
-          visualMode={visualMode}
-          onToggleVisualMode={() => setVisualMode((prev) => (prev === 'avatar' ? 'hologram' : 'avatar'))}
           showChatText={showChatText}
           onToggleChatText={() =>
             setShowChatText((prev) => {
@@ -948,39 +971,22 @@ export default function App() {
           onPlayVoice={speakResponse}
           playingMessageId={playingMessageId}
         >
-          {visualMode === 'avatar' ? (
-            <AnimeAvatar3D
-              state={hologramState}
-              emotion={currentEmotion}
-              accentColor="#00ff66"
-              onStartSession={handleStartVoiceSession}
-              onClick={async () => {
-                const st = stateManager.getState();
-                if (st === 'disconnected') {
-                  await handleStartVoiceSession();
-                } else if (st === 'speaking') {
-                  liveSession.handleUserInterrupt();
-                } else {
-                  liveSession.disconnect();
-                }
-              }}
-            />
-          ) : (
-            <JarvisHologram3D
-              state={hologramState}
-              emotion={currentEmotion}
-              onClick={async () => {
-                const st = stateManager.getState();
-                if (st === 'disconnected') {
-                  await handleStartVoiceSession();
-                } else if (st === 'speaking') {
-                  liveSession.handleUserInterrupt();
-                } else {
-                  liveSession.disconnect();
-                }
-              }}
-            />
-          )}
+          <AnimeAvatar3D
+            state={hologramState}
+            emotion={currentEmotion}
+            accentColor="#00ff66"
+            onStartSession={handleStartVoiceSession}
+            onClick={async () => {
+              const st = stateManager.getState();
+              if (st === 'disconnected') {
+                await handleStartVoiceSession();
+              } else if (st === 'speaking') {
+                liveSession.handleUserInterrupt();
+              } else {
+                liveSession.disconnect();
+              }
+            }}
+          />
         </VoiceOrbStage>
       </div>
 
@@ -1036,7 +1042,7 @@ export default function App() {
         }}
       />
 
-      {/* M4 Safety Confirmation Modal */}
+      {/* Safety Confirmation Modal */}
       <SafetyConfirmModal
         request={safetyRequest}
         onClose={() => setSafetyRequest(null)}

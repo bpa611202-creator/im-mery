@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, MicOff, Trash2, Sparkles, Volume2, CornerDownLeft } from 'lucide-react';
+import { Send, Mic, MicOff, Trash2, Sparkles, Volume2, CornerDownLeft, Smile } from 'lucide-react';
+import { EmojiPickerPopover } from './EmojiPickerPopover';
 
 interface VoiceInputDockProps {
   onSendMessage: (text: string) => void;
@@ -21,11 +22,31 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
   onToggleAutoSpeak,
 }) => {
   const [text, setText] = useState('');
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const emojiTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const handleInsertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setText((prev) => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart ?? text.length;
+    const end = textarea.selectionEnd ?? text.length;
+    const nextText = text.slice(0, start) + emoji + text.slice(end);
+    setText(nextText);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const newPos = start + emoji.length;
+      textarea.setSelectionRange(newPos, newPos);
+    });
+  };
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!text.trim() || disabled) return;
+    setIsEmojiPickerOpen(false);
     onSendMessage(text.trim());
     setText('');
     if (textareaRef.current) {
@@ -101,8 +122,23 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
             />
           </div>
 
-          {/* Controls: Auto-voice toggle, Clear, Send */}
+          {/* Controls: Emoji, Auto-voice toggle, Clear, Send */}
           <div className="flex items-center gap-1.5 flex-shrink-0 pb-0.5">
+            <button
+              ref={emojiTriggerRef}
+              id="btn-input-dock-emoji"
+              type="button"
+              onClick={() => setIsEmojiPickerOpen(!isEmojiPickerOpen)}
+              className={`p-2 rounded-xl text-xs transition-all cursor-pointer ${
+                isEmojiPickerOpen
+                  ? 'bg-[#0066FF]/20 text-[#00A3FF] border border-[#00A3FF]/30 shadow-sm'
+                  : 'text-white/40 hover:text-white/80 hover:bg-white/[0.05]'
+              }`}
+              title={isEmojiPickerOpen ? 'Close emoji picker' : 'Open emoji box'}
+            >
+              <Smile className="w-4 h-4" />
+            </button>
+
             <button
               id="btn-toggle-auto-voice"
               type="button"
@@ -141,13 +177,23 @@ export const VoiceInputDock: React.FC<VoiceInputDockProps> = ({
               <Send className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Floating Emoji Box Popover */}
+          <EmojiPickerPopover
+            isOpen={isEmojiPickerOpen}
+            onClose={() => setIsEmojiPickerOpen(false)}
+            onSelectEmoji={handleInsertEmoji}
+            triggerRef={emojiTriggerRef}
+            accentColor="blue"
+            align="right"
+          />
         </form>
 
         {/* Footnote status */}
         <div className="flex items-center justify-between px-3 pt-1.5 text-[11px] text-white/40 font-telemetry">
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-[#00A3FF]" />
-            M4 SYSTEM // MERY COMPANION INTERFACE
+            MERY COMPANION INTERFACE
           </span>
           <span className="hidden sm:inline text-white/30">
             Press <kbd className="px-1 py-0.5 rounded bg-white/10 font-mono text-[10px]">Enter ↵</kbd> to send

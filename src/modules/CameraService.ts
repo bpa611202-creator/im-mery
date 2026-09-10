@@ -8,7 +8,7 @@ export class CameraService {
   private videoElement: HTMLVideoElement | null = null;
   private canvasElement: HTMLCanvasElement | null = null;
   private isActive: boolean = false;
-  private facingMode: CameraFacing = 'environment';
+  private facingMode: CameraFacing = 'user';
   private permissionStatus: CameraPermissionStatus = 'prompt';
   private listeners: Set<(isActive: boolean) => void> = new Set();
   private frameListeners: Set<(base64: string) => void> = new Set();
@@ -58,7 +58,7 @@ export class CameraService {
     return () => this.frameListeners.delete(listener);
   }
 
-  async startCamera(facing: CameraFacing = 'environment'): Promise<{ success: boolean; error?: string }> {
+  async startCamera(facing: CameraFacing = 'user'): Promise<{ success: boolean; error?: string }> {
     if (!this.isAvailable()) {
       this.permissionStatus = 'unsupported';
       return { success: false, error: 'Camera API is not supported on this browser or device.' };

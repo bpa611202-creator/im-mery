@@ -144,7 +144,7 @@ class LocationService {
       };
     }
 
-    // Default culturally-aligned baseline for MERY (M4 assistant)
+    // Default culturally-aligned baseline for MERY assistant
     return {
       city: 'Ahmedabad',
       state: 'Gujarat',

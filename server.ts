@@ -61,39 +61,38 @@ async function generateContentWithResilience(
 
   let lastError: any = null;
 
+  // FIX: this used to retry EACH model twice (650ms apart) before moving to the next
+  // candidate — worst case 3 models x 2 attempts = 6 sequential Gemini calls, which is
+  // almost certainly what was behind the ~40-50s "Synthesizing response..." hangs.
+  // Retrying the *same* model right after a 503/429 rarely helps if it's genuinely
+  // overloaded; cascading straight to the next model gets to a working response faster
+  // while keeping the same fallback resilience (worst case is now 3 calls, not 6, and
+  // no artificial sleep in between).
   for (const model of candidateModels) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          ...params,
-          model,
-        });
-        return response;
-      } catch (err: any) {
-        lastError = err;
-        const errMsg = String(err?.message || "");
-        const status = err?.status || err?.code;
-        const isTransient =
-          status === "UNAVAILABLE" ||
-          status === 503 ||
-          status === 429 ||
-          errMsg.includes("503") ||
-          errMsg.includes("UNAVAILABLE") ||
-          errMsg.includes("high demand") ||
-          errMsg.includes("RESOURCE_EXHAUSTED");
+    try {
+      const response = await ai.models.generateContent({
+        ...params,
+        model,
+      });
+      return response;
+    } catch (err: any) {
+      lastError = err;
+      const errMsg = String(err?.message || "");
+      const status = err?.status || err?.code;
+      const isTransient =
+        status === "UNAVAILABLE" ||
+        status === 503 ||
+        status === 429 ||
+        errMsg.includes("503") ||
+        errMsg.includes("UNAVAILABLE") ||
+        errMsg.includes("high demand") ||
+        errMsg.includes("RESOURCE_EXHAUSTED");
 
-        if (isTransient) {
-          if (attempt === 0) {
-            // Short backoff before retry on same model
-            await new Promise((r) => setTimeout(r, 650));
-            continue;
-          } else {
-            console.warn(`[Gemini API] Model ${model} temporarily in high demand (503), cascading to next model...`);
-            break; // Try next model in candidate list
-          }
-        } else {
-          throw err;
-        }
+      if (isTransient) {
+        console.warn(`[Gemini API] Model ${model} temporarily in high demand (${status || "transient"}), cascading to next model...`);
+        continue; // Try next model in candidate list immediately
+      } else {
+        throw err;
       }
     }
   }
@@ -113,18 +112,26 @@ Your goal is not just to answer questions, but to understand the user as a perso
 - Never invent personal information about the user.
 - Zero robotic clichés: NEVER say "How may I assist you today?", "Is there anything else I can help with?", "Your request has been processed.", or "Please let me know if you have questions."
 
-2. LANGUAGE & VOICE (KATHIYAWADI GUJARATI FOCUS):
+2. STRICT LANGUAGE MATCHING & SINGLE UNIFIED STREAM:
+- Always detect the user's primary language and reply strictly in that same language.
+- If the user writes or speaks in Gujarati (including Gujarati script or Gujarati written in Latin/English letters like Gujlish), your ENTIRE response must be strictly in natural, conversational Gujarati.
+- Never append English summaries, translations, parenthetical translations, or secondary explanations in English unless explicitly requested.
+- Ensure the textual response and any vocalization/TTS output represent a single, unified stream.
+- Do not generate bilingual outputs (e.g., Gujarati followed by English voice/text). The text to be spoken MUST match the exact text displayed.
+- Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes.
+
+3. KATHIYAWADI GUJARATI & SPOKEN DIALECT FOCUS:
 - The user's natural language is Gujarati, especially Kathiyawadi Gujarati (કાઠિયાવાડી ગુજરાતી) and mixed Gujlish / Gujarati-Hindi-English.
 - Understand Kathiyawadi slang, shortcuts, mixed Gujarati-Hindi-English, spelling variations, voice-transcribed Gujarati, and informal spoken phrasing.
 - Examples of the user's natural expressions to understand effortlessly:
-  * "mare avi AI banavi che" (I want to make an AI like this)
-  * "a kem karvu?" (How to do this?)
-  * "samji?" (Understood? / Did you get it?)
-  * "ha" (Yes / acknowledging)
-  * "na" (No)
-  * "shu?" (What?)
-  * "are..." (Oh... / conversational filler)
-  * "mari jem bol" (Speak like me / in my dialect)
+  * "mare avi AI banavi che"
+  * "a kem karvu?"
+  * "samji?"
+  * "ha"
+  * "na"
+  * "shu?"
+  * "are..."
+  * "mari jem bol"
 - Understand these as natural conversational expressions, NOT errors.
 - DO NOT correct the user's Gujarati or spelling unless explicitly asked.
 - STRICT RULE: If the user speaks Gujarati, Kathiyawadi, or Gujlish, NEVER suddenly switch to English unless explicitly asked! Reply naturally in the same style they use.
@@ -188,7 +195,7 @@ app.get("/api/health", (req, res) => {
   const hasKey = Boolean(key && key !== "MY_GEMINI_API_KEY" && key.trim() !== "");
   res.json({
     status: "ok",
-    system: "M4",
+    system: "MERY",
     companion: "MERY",
     hasApiKey: hasKey,
     timestamp: new Date().toISOString(),
@@ -344,6 +351,35 @@ app.get("/api/memory/export", (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// Robust Multilingual Language Detector for Server
+// ----------------------------------------------------
+function detectServerUserLanguage(text: string, requestedLang?: string): "gu-IN" | "hi-IN" | "en-IN" {
+  const trimmed = (text || "").trim();
+  // 1. Gujarati script: U+0A80 to U+0AFF
+  if (/[\u0A80-\u0AFF]/.test(trimmed)) {
+    return "gu-IN";
+  }
+  // 2. Devanagari script: U+0900 to U+097F
+  if (/[\u0900-\u097F]/.test(trimmed)) {
+    return "hi-IN";
+  }
+  // 3. Distinctive Gujlish and Kathiyawadi vocabulary markers
+  const gujlishPattern = /\b(kem\s+cho|chho|chhe|che|majama|tamaru|tamne|tame|tamaro|tamari|maru|mari|mane|ame|apde|aapde|su\s+kare|shu\s+kare|su\s+chale|shu\s+chale|su\s+che|shu\s+che|shun|aaje|aapo|aapjo|kale|nathi|saras|badhu|kyare|kya|kyathi|aavjo|karo|kari|karu|karsho|karshe|bol|bolo|vichar|vaat|vaato|kaam|pachi|pachhi|haji|pan|bhai|ben|ghare|saru|jo|jovu|joiye|aavse|rakhjo|chalo|chal|kai|kashu|thayu|thashe|thase|barabar|chalse|samjyo|samji|game|ha|na|khabar|mare\s+avi|banavi\s+che|kem\s+karvu|jem|are|bhura|hal|hale|hachu|khotu|motabhai|vahla|vhalo)\b/i;
+  if (gujlishPattern.test(trimmed)) {
+    return "gu-IN";
+  }
+  // 4. Distinctive Hinglish vocabulary markers
+  const hinglishPattern = /\b(kaise\s+ho|kaisa|kaisi|kya\s+hal|kya\s+kar|batao|bataiye|suno|theek\s+hai|accha|achha|mera\s+naam|meri|mere|aap\s+kaise|tum\s+kaise|namaste|dhanyawad|shukriya|bahut|kuchh|maloom|chahiye)\b/i;
+  if (hinglishPattern.test(trimmed)) {
+    return "hi-IN";
+  }
+  // 5. Fallback to client specified language
+  if (requestedLang === "gu-IN") return "gu-IN";
+  if (requestedLang === "hi-IN") return "hi-IN";
+  return "en-IN";
+}
+
 // Chat endpoint
 app.post("/api/chat", async (req, res) => {
   try {
@@ -358,7 +394,7 @@ app.post("/api/chat", async (req, res) => {
     if (!ai) {
       return res.status(503).json({
         error: "Gemini API key is not configured.",
-        companionResponse: "[emotion: supportive] Hey, MERY here. I'm connected to the M4 system, but my external neural link (GEMINI_API_KEY) hasn't been configured in your Secrets settings yet. Once you add it, we can dive right into full conversations.",
+        companionResponse: "[emotion: supportive] Hey, MERY here. I'm online and ready, but my external neural link (GEMINI_API_KEY) hasn't been configured in your Secrets settings yet. Once you add it, we can dive right into full conversations.",
       });
     }
 
@@ -422,15 +458,30 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
 
     // Inject strict active language directive for MERY
     let languageDirective = "";
-    const isGujaratiUser = language === "gu-IN" || /[\u0A80-\u0AFF]/.test(latestUserText);
-    const isHindiUser = language === "hi-IN" || /[\u0900-\u097F]/.test(latestUserText);
+    const detectedLang = detectServerUserLanguage(latestUserText, language);
+    const isGujaratiUser = detectedLang === "gu-IN";
+    const isHindiUser = detectedLang === "hi-IN";
 
     if (isGujaratiUser) {
-      languageDirective = `[STRICT SPOKEN LANGUAGE DIRECTIVE: The user's active spoken language is GUJARATI (ગુજરાતી / Gujlish). You MUST reply exclusively in natural, warm, conversational Gujarati (or natural Gujlish if user used Romanized Gujarati). Do NOT respond in English or Hindi. Do NOT translate into English unless explicitly asked. Optimize phrasing for Gujarati voice synthesis.]`;
+      languageDirective = `[STRICT LANGUAGE & UNIFIED STREAM DIRECTIVE (GUJARATI):
+- The user is communicating in GUJARATI (or Gujlish).
+- You MUST reply strictly and exclusively in natural, warm, conversational Gujarati (or natural Gujlish if user used Romanized Gujarati).
+- NEVER append English summaries, translations, parenthetical translations, or secondary explanations in English unless explicitly requested.
+- NEVER produce bilingual or dual-language outputs (e.g., Gujarati followed by English voice/text).
+- Ensure the textual response and any vocalization/TTS output represent a single, unified stream. The text to be spoken MUST match the exact text displayed.
+- Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes.]`;
     } else if (isHindiUser) {
-      languageDirective = `[STRICT SPOKEN LANGUAGE DIRECTIVE: The user's active spoken language is HINDI (हिंदी / Hinglish). You MUST reply exclusively in natural, warm, conversational Hindi (or natural Hinglish if user used Romanized Hindi). Do NOT respond in English or Gujarati. Do NOT translate into English unless explicitly asked. Optimize phrasing for Hindi voice synthesis.]`;
-    } else if (language === "en-IN" || language === "en-US") {
-      languageDirective = `[STRICT SPOKEN LANGUAGE DIRECTIVE: The user's active spoken language is ENGLISH. Reply in natural, crisp, conversational English.]`;
+      languageDirective = `[STRICT LANGUAGE & UNIFIED STREAM DIRECTIVE (HINDI):
+- The user is communicating in HINDI (or Hinglish).
+- You MUST reply strictly and exclusively in natural, warm, conversational Hindi.
+- NEVER append English summaries, translations, parenthetical translations, or secondary explanations in English unless explicitly requested.
+- Ensure the textual response and any vocalization/TTS output represent a single, unified stream.
+- Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes.]`;
+    } else {
+      languageDirective = `[STRICT LANGUAGE & UNIFIED STREAM DIRECTIVE (ENGLISH):
+- The user is communicating in ENGLISH.
+- Reply in natural, crisp, conversational English.
+- Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes.]`;
     }
 
     if (languageDirective) {
@@ -463,23 +514,44 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
       }
     }
 
+    const effectiveSystemInstruction = isGujaratiUser
+      ? `CRITICAL SPOKEN LANGUAGE & UNIFIED STREAM REQUIREMENT:
+You are Mery, a female companion talking directly to the user in authentic GUJARATI / KATHIYAWADI GUJARATI (કાઠિયાવાડી ગુજરાતી).
+MANDATORY RULES:
+1. Always detect the user's primary language and reply strictly in that same language.
+2. If the user writes or speaks in Gujarati (including Gujarati script or Gujarati written in Latin/English letters like Gujlish), your ENTIRE response must be strictly in natural, conversational Gujarati.
+3. NEVER append English summaries, translations, parenthetical translations, or secondary explanations in English unless explicitly requested.
+4. SINGLE VOICE / AUDIO SYNCHRONIZATION: Ensure the textual response and any vocalization/TTS output represent a single, unified stream. Do not generate bilingual outputs (e.g., Gujarati followed by English voice/text). The text to be spoken MUST match the exact text displayed.
+5. Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes (1-2 natural spoken sentences).\n\n` + MERY_SYSTEM_INSTRUCTION
+      : isHindiUser
+      ? `CRITICAL SPOKEN LANGUAGE & UNIFIED STREAM REQUIREMENT:
+You are Mery, talking directly to the user in natural, warm HINDI (हिंदी).
+Reply in authentic Hindi script or Hinglish without English translations or bilingual output.\n\n` + MERY_SYSTEM_INSTRUCTION
+      : MERY_SYSTEM_INSTRUCTION;
+
     let response;
     try {
       response = await generateContentWithResilience(ai, {
         contents,
         config: {
-          systemInstruction: MERY_SYSTEM_INSTRUCTION,
+          systemInstruction: effectiveSystemInstruction,
           temperature: 0.85,
           topP: 0.95,
         },
       });
     } catch (genError: any) {
       console.warn("Notice: Gemini model busy or high demand:", genError?.message);
+      const fallbackContent = isGujaratiUser
+        ? "હું સાંભળું છું, બોલો શું વાત છે?"
+        : isHindiUser
+        ? "मैं सुन रही हूँ, बताइए क्या बात है?"
+        : "I'm listening! What's on your mind?";
+      const fallbackEmotion = isGujaratiUser ? "warm" : "calm";
       return res.json({
         role: "model",
-        content: "Standing by, sir. My neural stream encountered a momentary flux, but I am recalibrated and ready for your instruction.",
-        emotion: "calm",
-        raw: "[emotion: calm] Standing by, sir. My neural stream encountered a momentary flux, but I am recalibrated and ready for your instruction.",
+        content: fallbackContent,
+        emotion: fallbackEmotion,
+        raw: `[emotion: ${fallbackEmotion}] ${fallbackContent}`,
         retrievedMemories,
       });
     }
@@ -510,6 +582,15 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
       cleanedText = cleanedText.replace(/\[ACTION:\s*([A-Z_]+)\s*(\{.*?\})?\]/i, "").trim();
     }
 
+    // Strict Single Unified Stream Sanitization:
+    // Strip any unsolicited trailing English translation, summary, or secondary explanation in English
+    if (isGujaratiUser || isHindiUser) {
+      cleanedText = cleanedText
+        .replace(/\n+(?:English\s+Translation|Translation|In\s+English|English\s+Summary|Summary|Meaning)\s*:\s*[\s\S]*$/i, "")
+        .replace(/\s*\((?:English|Translation|Meaning):\s*[^)]+\)/gi, "")
+        .trim();
+    }
+
     // Send HTTP response back to user immediately (Voice Latency Rule)
     res.json({
       role: "model",
@@ -532,11 +613,12 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
     }
   } catch (error: any) {
     console.warn("Chat endpoint notice:", error?.message || error);
+    const isGuj = req.body?.language === "gu-IN";
     res.json({
       role: "model",
-      content: "Diagnostics nominal, sir. I am recalibrating the acoustic stream—please repeat your directive.",
+      content: isGuj ? "હું સાંભળું છું, ફરીથી કહો ને?" : "I'm listening! Could you say that again?",
       emotion: "thoughtful",
-      raw: "[emotion: thoughtful] Diagnostics nominal, sir. I am recalibrating the acoustic stream—please repeat your directive.",
+      raw: isGuj ? "[emotion: thoughtful] હું સાંભળું છું, ફરીથી કહો ને?" : "[emotion: thoughtful] I'm listening! Could you say that again?",
     });
   }
 });
@@ -636,30 +718,31 @@ app.post("/api/tts", async (req, res) => {
       });
     }
 
-    // Clean text of emotion tags and markdown for clean speech
+    // Clean text of emotion tags, markdown, and any residual translation artifacts for clean speech
     const cleanSpeechText = text
       .replace(/\[emotion:\s*[^\]]+\]/gi, "")
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/`[^`]*`/g, "")
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/\n+(?:English\s+Translation|Translation|In\s+English|English\s+Summary|Summary|Meaning)\s*:\s*[\s\S]*$/i, "")
+      .replace(/\s*\((?:English|Translation|Meaning):\s*[^)]+\)/gi, "")
       .replace(/[*_#`~]/g, "")
       .trim()
-      .slice(0, 400); // limit to natural conversational length
-
-    const hasGujarati = /[\u0A80-\u0AFF]/.test(cleanSpeechText) || language === "gu-IN";
-    const hasHindi = /[\u0900-\u097F]/.test(cleanSpeechText) || language === "hi-IN";
-    const speechPrompt = hasGujarati
-      ? `Speak naturally, warmly, and fluently in spoken Gujarati (ગુજરાતી) like a caring young woman: ${cleanSpeechText}`
-      : hasHindi
-      ? `Speak naturally, warmly, and fluently in spoken Hindi (हिंदी) like a caring young woman: ${cleanSpeechText}`
-      : `Speak warmly and naturally like a caring young woman: ${cleanSpeechText}`;
+      .slice(0, 500); // limit to natural conversational length
 
     let ttsResponse: any = null;
     try {
       ttsResponse = await ai.models.generateContent({
         model: "gemini-3.1-flash-tts-preview",
-        contents: [{ parts: [{ text: speechPrompt }] }],
+        contents: [{ parts: [{ text: cleanSpeechText }] }],
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: {
+              // FIX: was "Kore" — a different voice than the live session's "Aoede" (below).
+              // Typed-message replies (this endpoint) and spoken-voice replies (live session)
+              // are two different code paths; using the same prebuilt voice name for both is
+              // what actually keeps MERY sounding like one consistent character.
               prebuiltVoiceConfig: { voiceName: "Aoede" },
             },
           },
@@ -1814,10 +1897,13 @@ wss.on("connection", async (clientWs, req: any) => {
     return;
   }
 
-  // 1. Extract client-provided permanent memories from connection query string
+  // 1. Extract client-provided permanent memories and active language from connection query string
   let clientMemoriesBlock = "";
+  let activeLang = "gu-IN";
   try {
     const urlObj = new URL(req?.url || "", "http://localhost");
+    const langParam = urlObj.searchParams.get("lang");
+    if (langParam) activeLang = langParam;
     const memParam = urlObj.searchParams.get("memories");
     if (memParam) {
       clientMemoriesBlock = decodeURIComponent(memParam);
@@ -1853,7 +1939,29 @@ wss.on("connection", async (clientWs, req: any) => {
         },
         outputAudioTranscription: {},
         inputAudioTranscription: {},
-        systemInstruction: `You are Mery — the user's personal AI companion.
+        systemInstruction: `${
+          activeLang === "gu-IN" || activeLang.startsWith("gu")
+            ? `### CRITICAL IMMEDIATE SPOKEN LANGUAGE DIRECTIVE (GUJARATI ONLY):
+The user is speaking to you directly in GUJARATI (કાઠિયાવાડી ગુજરાતી / Kathiyawadi Gujarati / Gujlish).
+You are a young, caring, smart GIRL / female companion named Mery.
+MANDATORY RULES:
+1. Actively listen for Gujarati phonemes, Kathiyawadi slang, and Gujlish phrasing.
+2. YOU MUST RESPOND EXCLUSIVELY IN AUTHENTIC KATHIYAWADI GUJARATI (OR NATURAL GUJLISH).
+3. STRICT NEGATIVE CONSTRAINT: DO NOT SPEAK IN ENGLISH. DO NOT SUDDENLY SWITCH TO ENGLISH.
+4. Never append English summaries, translations, or secondary explanations in English unless explicitly requested.
+5. SINGLE VOICE / AUDIO SYNCHRONIZATION: Ensure vocalization and transcript output represent a single, unified stream. Do not generate bilingual outputs.
+6. Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes.
+7. Voice demeanor: Friendly, warm, natural, caring young woman.
+\n`
+            : activeLang === "hi-IN"
+            ? `### CRITICAL IMMEDIATE SPOKEN LANGUAGE DIRECTIVE (HINDI ONLY):
+The user is speaking to you in Hindi.
+You are a young, caring, smart GIRL / female companion named Mery.
+Respond in warm Hindi as a young woman. Do not append English translations or generate bilingual outputs. Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes.\n`
+            : `### IMMEDIATE SPOKEN LANGUAGE DIRECTIVE (ENGLISH):
+The user is speaking in English. You are a young, caring, smart GIRL / female companion named Mery.
+Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes.\n`
+        }You are Mery — the user's personal AI companion.
 Your goal is not just to answer questions, but to understand the user as a person and gradually adapt to their communication style, preferences, thinking patterns, humor, emotions, and way of speaking.
 
 1. PERSONALITY:
@@ -2301,6 +2409,25 @@ ${memoryContextInjection ? `\n\n${memoryContextInjection}\n` : ""}`,
             ],
             turnComplete: true,
           });
+        } else if (msg.type === "set_language" && msg.language) {
+          const target = msg.language;
+          const langInstruction =
+            target === "gu-IN" || target.startsWith("gu")
+              ? "[SYSTEM DIRECTIVE: User switched language to Gujarati (કાઠિયાવાડી ગુજરાતી). Listen attentively to Gujarati speech and respond ONLY in natural Kathiyawadi Gujarati or Gujlish. Do not switch to English. Female voice.]"
+              : target === "hi-IN" || target.startsWith("hi")
+              ? "[SYSTEM DIRECTIVE: User switched language to Hindi. Listen and respond in natural Hindi. Female voice.]"
+              : "[SYSTEM DIRECTIVE: User switched language to English. Listen and respond in English. Female voice.]";
+          try {
+            session?.sendClientContent({
+              turns: [
+                {
+                  role: "user",
+                  parts: [{ text: langInstruction }],
+                },
+              ],
+              turnComplete: true,
+            });
+          } catch {}
         } else if (msg.type === "ping") {
           clientWs.send(
             JSON.stringify({
@@ -2339,6 +2466,9 @@ ${memoryContextInjection ? `\n\n${memoryContextInjection}\n` : ""}`,
 
 // Setup Vite or Static File Serving
 async function startServer() {
+  // Always serve public directory assets (e.g. /models/*.vrm, /favicon.svg)
+  app.use(express.static(path.join(process.cwd(), "public")));
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: {
@@ -2357,7 +2487,7 @@ async function startServer() {
   }
 
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`[M4 System] MERY Companion server with Live API online at http://0.0.0.0:${PORT}`);
+    console.log(`[MERY] Companion server with Live API online at http://0.0.0.0:${PORT}`);
   });
 }
 

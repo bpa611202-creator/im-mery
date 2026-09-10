@@ -19,6 +19,7 @@ export class LiveSession {
   private connectionId: number = 0;
   private connectPromise: Promise<boolean> | null = null;
   private transcriptListeners: Set<(text: string, role: 'model' | 'user') => void> = new Set();
+  private liveSpeechRecognition: any = null;
 
   constructor() {
     // Setup AudioPlayer callbacks
@@ -129,9 +130,12 @@ export class LiveSession {
         const memoriesPrompt = memoryManager.formatMemoriesForPrompt();
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const query = memoriesPrompt ? `?memories=${encodeURIComponent(memoriesPrompt)}` : '';
-        const wsUrl = `${protocol}//${window.location.host}/live${query}`;
-        console.log(`[LiveSession] Connecting to ${wsUrl} (connection #${currentId})...`);
+        const activeLang = stateManager.getLanguage() || 'gu-IN';
+        const params = new URLSearchParams();
+        if (memoriesPrompt) params.set('memories', memoriesPrompt);
+        params.set('lang', activeLang);
+        const wsUrl = `${protocol}//${window.location.host}/live?${params.toString()}`;
+        console.log(`[LiveSession] Connecting to ${wsUrl} (connection #${currentId}, lang: ${activeLang})...`);
 
         const socket = new WebSocket(wsUrl);
         this.ws = socket;
@@ -189,6 +193,7 @@ export class LiveSession {
             }
 
             safeResolve(true);
+            this.startLiveSpeechRecognition();
           } catch (micErr: any) {
             console.warn('[LiveSession] Microphone access notice:', micErr?.message || micErr);
             stateManager.setError('Microphone permission required for real-time voice.');
@@ -502,7 +507,117 @@ export class LiveSession {
       this.ws = null;
     }
 
+    if (this.liveSpeechRecognition) {
+      try {
+        this.liveSpeechRecognition.onresult = null;
+        this.liveSpeechRecognition.onend = null;
+        this.liveSpeechRecognition.onerror = null;
+        this.liveSpeechRecognition.abort();
+      } catch {}
+      this.liveSpeechRecognition = null;
+    }
+
     this.stopAllAudio();
+  }
+
+  /**
+   * Dedicated speech recognition listener running alongside audio streamer to ensure
+   * crystal-clear Gujarati transcription and immediate UI transcript feedback.
+   */
+  private startLiveSpeechRecognition(): void {
+    const SpeechRecognitionClass =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) return;
+
+    try {
+      if (this.liveSpeechRecognition) {
+        try {
+          this.liveSpeechRecognition.onresult = null;
+          this.liveSpeechRecognition.onend = null;
+          this.liveSpeechRecognition.onerror = null;
+          this.liveSpeechRecognition.abort();
+        } catch {}
+        this.liveSpeechRecognition = null;
+      }
+
+      const rec = new SpeechRecognitionClass();
+      rec.continuous = true;
+      rec.interimResults = true;
+      const lang = stateManager.getLanguage();
+      rec.lang = lang === 'auto' ? 'gu-IN' : (lang || 'gu-IN');
+
+      rec.onresult = (event: any) => {
+        let interim = '';
+        let finalChunk = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            finalChunk += res[0].transcript + ' ';
+          } else {
+            interim += res[0].transcript;
+          }
+        }
+
+        const spoken = (finalChunk || interim).trim();
+        if (spoken) {
+          // Immediately display user speech on live transcript UI
+          this.dispatchTranscript(spoken, 'user');
+        }
+
+        if (finalChunk.trim()) {
+          const finalUtterance = finalChunk.trim();
+          console.log('[LiveSession] Spoken transcript finalized:', finalUtterance);
+          this.inspectUserUtteranceForMemory(finalUtterance);
+        }
+      };
+
+      rec.onerror = (e: any) => {
+        if (e.error !== 'no-speech' && e.error !== 'aborted') {
+          console.debug('[LiveSession] Live speech recognition advisory:', e?.error);
+        }
+      };
+
+      rec.onend = () => {
+        // Automatically restart speech recognition while live session is active
+        if (this.isConnected() && !this.isUserExplicitDisconnect) {
+          try {
+            rec.start();
+          } catch {}
+        }
+      };
+
+      rec.start();
+      this.liveSpeechRecognition = rec;
+      console.log(`[LiveSession] Live speech recognition active with locale: ${rec.lang}`);
+    } catch (e) {
+      console.debug('[LiveSession] Speech recognition initialization note:', e);
+    }
+  }
+
+  /**
+   * Update active language dynamically for both client speech recognition and Gemini Live
+   */
+  public updateLanguage(newLang: string): void {
+    if (this.liveSpeechRecognition) {
+      try {
+        this.liveSpeechRecognition.abort();
+        this.liveSpeechRecognition.lang = newLang === 'auto' ? 'gu-IN' : (newLang || 'gu-IN');
+        this.liveSpeechRecognition.start();
+        console.log(`[LiveSession] Speech recognition updated to: ${this.liveSpeechRecognition.lang}`);
+      } catch {}
+    }
+
+    if (this.isConnected()) {
+      try {
+        this.ws?.send(
+          JSON.stringify({
+            type: 'set_language',
+            language: newLang,
+          })
+        );
+      } catch {}
+    }
   }
 
   /**

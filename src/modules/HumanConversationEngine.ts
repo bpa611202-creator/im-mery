@@ -200,7 +200,11 @@ export class HumanConversationEngine {
   private onBackchannelCallback: ((text: string) => void) | null = null;
 
   constructor() {
-    stateManager.setConversationState('IDLE');
+    try {
+      if (typeof stateManager !== 'undefined' && stateManager) {
+        stateManager.setConversationState('IDLE');
+      }
+    } catch {}
   }
 
   public setCallbacks(
@@ -227,7 +231,11 @@ export class HumanConversationEngine {
   public setState(nextState: ConversationState, analysis?: TurnTakingAnalysis) {
     if (this.currentState === nextState && !analysis) return;
     this.currentState = nextState;
-    stateManager.setConversationState(nextState, analysis);
+    try {
+      if (typeof stateManager !== 'undefined' && stateManager) {
+        stateManager.setConversationState(nextState, analysis);
+      }
+    } catch {}
   }
 
   // Called when raw audio / speech recognition detects candidate text
@@ -265,9 +273,11 @@ export class HumanConversationEngine {
 
     // Filter out accidental noise, clicks, or short murmurs, while preserving meaningful short words in English, Gujarati & Kathiyawadi
     const meaningfulShortWords = new Set([
-      'hi', 'no', 'ok', 'ha', 'na', 'hu', 'jo', 'ho', 'ya', 'ye', 'su', 'le', 'are', 'aa', 'ae', 'te', 'to', 'ne', 'chhe', 'che'
+      'hi', 'no', 'ok', 'ha', 'na', 'hu', 'jo', 'ho', 'ya', 'ye', 'su', 'le', 'are', 'aa', 'ae', 'te', 'to', 'ne', 'chhe', 'che',
+      'હા', 'ના', 'શું', 'કેમ', 'છો', 'હું', 'આ', 'તે', 'જો', 'લે', 'હો', 'ને', 'તો', 'છે', 'વાહ', 'અરે', 'હાં', 'બોલો'
     ]);
-    if (words.length === 0 || (words.length === 1 && words[0].length < 3 && !meaningfulShortWords.has(words[0]))) {
+    const hasIndicChars = /[\u0A80-\u0AFF\u0900-\u097F]/.test(clean);
+    if (words.length === 0 || (!hasIndicChars && words.length === 1 && words[0].length < 3 && !meaningfulShortWords.has(words[0]))) {
       return {
         isMeaningful: false,
         isIncomplete: false,
@@ -506,9 +516,9 @@ export class HumanConversationEngine {
 
     // 5. Normal Response / Follow-up
     // Direct question, explicit request, or finished statement expecting interaction
-    const isDirectAddress = clean.toLowerCase().includes('mery');
-    const isConversationalInterjection = /^(ha|na|shu\??|su\??|samji\??|are\.\.\.?|hachu\??|barabar|theek|saras|jo|chal|hale|sachu)\b/i.test(clean);
-    const requiresResponse = analysis.isQuestion || isDirectAddress || clean.length > 15 || isConversationalInterjection;
+    const isDirectAddress = clean.toLowerCase().includes('mery') || clean.includes('મેરી') || clean.includes('મારી');
+    const isConversationalInterjection = /^(ha|na|shu\??|su\??|samji\??|are\.\.\.?|hachu\??|barabar|theek|saras|jo|chal|hale|sachu)\b/i.test(clean) || /^(હા|ના|શું\??|સમજી\??|અરે|સાચું\??|બરાબર|ઠીક|સરસ|જો|ચાલ|હાલે|છે|કેમ)/.test(clean);
+    const requiresResponse = analysis.isMeaningful;
 
     let decisionMode: ResponseDecisionMode = 'NORMAL_RESPONSE';
     if (!analysis.isQuestion && clean.length > 35 && Math.random() > 0.4) {

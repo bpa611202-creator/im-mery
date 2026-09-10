@@ -177,7 +177,7 @@ function seedInitialMemories(db: DatabaseSync) {
       id: "mem-sys-2",
       user_id: "default_user",
       type: "project",
-      content: "Actively developing MERY as a voice-native AI companion and system interface for M4.",
+      content: "Actively developing MERY as a voice-native AI companion and system interface.",
       normalized_category: "development",
       normalized_key: "primary_project",
       normalized_value: "mery_ai_companion",
@@ -192,7 +192,7 @@ function seedInitialMemories(db: DatabaseSync) {
       last_accessed_at: now,
       last_confirmed_at: now,
       version: 1,
-      tags: JSON.stringify(["mery", "m4", "voice_assistant"]),
+      tags: JSON.stringify(["mery", "voice_assistant"]),
       provenance: "System Bootstrap / Project Core",
     },
     {

@@ -2,7 +2,7 @@ import { ActivityContext, ActivityPattern } from '../types';
 
 export class ActivityMonitor {
   private context: ActivityContext = {
-    currentApp: 'Visual Studio Code — Project M4',
+    currentApp: 'Visual Studio Code — Project Workspace',
     activityPattern: 'coding',
     focusMinutes: 42,
     keystrokesPerMinute: 68,

@@ -49,7 +49,7 @@ export const MeryStatusBar: React.FC<MeryStatusBarProps> = ({
 
   return (
     <header
-      id="m4-status-bar"
+      id="mery-status-bar"
       className="w-full px-6 sm:px-12 pt-5 sm:pt-7 pb-3 sm:pb-4 flex items-center justify-between z-30 select-none pointer-events-auto border-b border-white/[0.03]"
     >
       {/* Architecture & Title */}

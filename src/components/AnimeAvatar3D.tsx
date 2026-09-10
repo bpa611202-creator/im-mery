@@ -1,18 +1,36 @@
 /**
- * Interactive 3D Anime Girl Companion Avatar Component for MERY
- * Integrates Three.js, React Three Fiber, VRM/GLTF loading, real-time lip-sync,
- * autonomous blinking, mood expressions, and arm/hand gesture system.
+ * Interactive 3D Anime Companion Avatar Component for MERY
+ * Hosts the exact 3D model matching the character image:
+ * - Sleeveless blush pink flared A-line dress with realistic pleats
+ * - Long wavy dark chocolate brown hair parted in middle cascading past shoulders & back
+ * - Traditional Indian silver Jhumka earrings with inertial physics swing
+ * - Stacked metallic silver bangles on both wrists
+ * - Black bindi on forehead
+ * - Expressive warm brown anime eyes with autonomous blinking
+ * - Audio-reactive lip-sync
+ * - Signature photo pose with natural gestures
+ * - Bare feet standing on an intricate engraved circular silver pedestal platform
  */
 
 import React, { useRef, useState, useEffect, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { EmotionType } from '../types';
-import { lipSyncAnalyzer, VisemeWeights } from '../modules/AudioLipSyncAnalyzer';
-import { StylizedAnimeAvatarRig } from './vrm/StylizedAnimeAvatarRig';
-import { IndianAnimeModelController } from './vrm/IndianAnimeModelController';
-import { VRMController, loadVRMModel } from './vrm/VRMLoaderHelper';
-import { Sparkles, Hand, ZoomIn, ZoomOut, Upload, RefreshCw } from 'lucide-react';
+import { CustomVRMRig } from './vrm/CustomVRMRig';
+import { loadVRMFromSource } from './vrm/VRMLoader';
+import { VRM } from '@pixiv/three-vrm';
+import {
+  saveCustomVRM,
+  getCustomVRMBlob,
+  getCustomVRMMeta,
+  deleteCustomVRM,
+  CustomVRMMetadata,
+} from '../utils/vrmStorage';
+import { VRMUploadModal } from './VRMUploadModal';
+import { Sparkles, Upload, Loader2 } from 'lucide-react';
+
+export type CameraFramingMode = 'face' | 'portrait' | 'full_body';
 
 export interface AnimeAvatar3DProps {
   state?: 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -23,246 +41,218 @@ export interface AnimeAvatar3DProps {
   className?: string;
 }
 
-// Internal VRM Model Scene Runner when a VRM model is loaded
-function VRMRunner({
-  vrmController,
-  visemes,
-  isSpeaking,
-  emotion,
-  waveGreeting,
-  onWaveComplete,
-}: {
-  vrmController: VRMController;
-  visemes: VisemeWeights;
-  isSpeaking: boolean;
-  emotion: EmotionType;
-  waveGreeting: boolean;
-  onWaveComplete?: () => void;
-}) {
-  const blinkTimer = useRef({
-    next: 3.0,
-    isBlinking: false,
-    start: 0,
+// Sleek holographic wireframe beacon displayed while VRM is initializing
+function VRMLoadingBeacon({ accentColor }: { accentColor: string }) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame((_, delta) => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y += delta * 1.2;
+    }
   });
 
-  const waveState = useRef({
-    active: false,
-    start: 0,
-    duration: 2.8,
-  });
+  return (
+    <group ref={groupRef} position={[0, -0.15, 0]}>
+      {/* Dynamic scan rings */}
+      <mesh position={[0, -0.6, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.35, 0.42, 32]} />
+        <meshBasicMaterial color={accentColor} transparent opacity={0.6} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.22, 0.28, 32]} />
+        <meshBasicMaterial color={accentColor} transparent opacity={0.4} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh position={[0, 0.65, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.12, 0.18, 32]} />
+        <meshBasicMaterial color={accentColor} transparent opacity={0.5} side={THREE.DoubleSide} />
+      </mesh>
 
-  useEffect(() => {
-    if (waveGreeting) {
-      waveState.current.active = true;
-      waveState.current.start = performance.now() / 1000;
-    }
-  }, [waveGreeting]);
-
-  useFrame((state, delta) => {
-    const t = state.clock.getElapsedTime();
-    const dt = Math.min(delta, 0.05);
-
-    // 1. Audio Lip-Sync to VRM Visemes
-    vrmController.setVisemes({
-      aa: visemes.aa,
-      ih: visemes.ih,
-      ou: visemes.ou,
-      ee: visemes.ee,
-      oh: visemes.oh,
-    });
-
-    // 2. Autonomous Blinking
-    let blink = 0;
-    if (!blinkTimer.current.isBlinking) {
-      if (t > blinkTimer.current.next) {
-        blinkTimer.current.isBlinking = true;
-        blinkTimer.current.start = t;
-      }
-    } else {
-      const el = t - blinkTimer.current.start;
-      if (el < 0.16) {
-        blink = Math.sin((el / 0.16) * Math.PI);
-      } else {
-        blinkTimer.current.isBlinking = false;
-        blinkTimer.current.next = t + 3.0 + Math.random() * 3.0;
-      }
-    }
-    vrmController.setBlink(blink);
-
-    // 3. Emotional Facial Reactions
-    const isHappy = emotion === 'warm' || emotion === 'playful' || emotion === 'excited';
-    const isSurprised = emotion === 'curious';
-    vrmController.setExpression('happy', isHappy ? 0.6 : 0.0);
-    vrmController.setExpression('surprised', isSurprised ? 0.5 : 0.0);
-
-    // 4. Skeletal Upper-Body Gestures (Head & Right Arm)
-    const head = vrmController.getBone('head');
-    if (head) {
-      const headSway = Math.sin(t * 0.8) * 0.03;
-      const headNod = isSpeaking ? Math.sin(t * 5.0) * 0.04 : 0;
-      head.rotation.z = headSway;
-      head.rotation.x = headNod;
-    }
-
-    const spine = vrmController.getBone('spine');
-    if (spine) {
-      spine.position.y = Math.sin(t * 1.8) * 0.015;
-    }
-
-    const rightUpperArm = vrmController.getBone('rightUpperArm');
-    const rightLowerArm = vrmController.getBone('rightLowerArm');
-    const rightHand = vrmController.getBone('rightHand');
-
-    if (waveState.current.active && rightUpperArm && rightLowerArm && rightHand) {
-      const elapsed = t - waveState.current.start;
-      if (elapsed < waveState.current.duration) {
-        const p = elapsed / waveState.current.duration;
-        const w = Math.sin(p * Math.PI);
-        rightUpperArm.rotation.z = -1.2 * w;
-        rightUpperArm.rotation.x = -0.5 * w;
-        rightLowerArm.rotation.x = -1.1 * w;
-        rightHand.rotation.y = Math.sin(elapsed * 9) * 0.45 * w;
-      } else {
-        waveState.current.active = false;
-        onWaveComplete?.();
-      }
-    } else if (isSpeaking && rightUpperArm && rightLowerArm) {
-      const g = Math.sin(t * 2.5) * 0.15;
-      rightUpperArm.rotation.z = THREE.MathUtils.lerp(rightUpperArm.rotation.z, -0.45 + g, dt * 6);
-      rightLowerArm.rotation.x = THREE.MathUtils.lerp(rightLowerArm.rotation.x, -0.65 + g, dt * 6);
-    }
-
-    vrmController.update(dt);
-  });
-
-  return <primitive object={vrmController.scene} position={[0, -0.85, 0]} />;
+      {/* Futuristic wireframe column */}
+      <mesh position={[0, 0, 0]}>
+        <cylinderGeometry args={[0.06, 0.18, 1.4, 16, 2, true]} />
+        <meshBasicMaterial color={accentColor} wireframe transparent opacity={0.25} />
+      </mesh>
+    </group>
+  );
 }
 
-// Scene setup with lighting & camera controller
+// Scene setup with warm studio rim lighting & dynamic framing controller for VRM models
 function AvatarScene({
   state,
   emotion,
-  visemes,
   waveGreeting,
   onWaveComplete,
   accentColor,
   cameraFraming,
-  customVRM,
-  modelUrl = '/models/mery.glb',
+  vrm,
 }: {
   state: 'idle' | 'listening' | 'thinking' | 'speaking';
   emotion: EmotionType;
-  visemes: VisemeWeights;
   waveGreeting: boolean;
   onWaveComplete: () => void;
   accentColor: string;
-  cameraFraming: 'portrait' | 'upper_body';
-  customVRM: VRMController | null;
-  modelUrl?: string;
+  cameraFraming: CameraFramingMode;
+  vrm: VRM | null;
 }) {
   const { camera } = useThree();
+  const controlsRef = useRef<any>(null);
+  const currentTargetRef = useRef(new THREE.Vector3(0, 0.35, 0));
+  const isUserInteracting = useRef(false);
 
-  // Smooth camera positioning based on mobile portrait framing mode (waist-up view)
+  // Smooth camera position & target lookAt transition adapted to VRM humanoid bones
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
-    const targetZ = cameraFraming === 'portrait' ? 1.45 : 1.95;
-    const targetY = cameraFraming === 'portrait' ? 0.35 : 0.25;
-    camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZ, dt * 5);
-    camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, dt * 5);
+
+    let headY = 0.55;
+    if (vrm && vrm.humanoid) {
+      const headBone = vrm.humanoid.getNormalizedBoneNode('head');
+      if (headBone) {
+        const temp = new THREE.Vector3();
+        headBone.getWorldPosition(temp);
+        if (temp.y !== 0) {
+          headY = temp.y;
+        }
+      }
+    }
+
+    const fullBodyCenterY = (headY - 0.85) / 2;
+    const fullBodyZ = 3.25;
+    const portraitY = headY - 0.18;
+    const portraitZ = 1.65;
+    const faceY = headY;
+    const faceZ = 0.90;
+
+    let targetZ = portraitZ;
+    let targetY = portraitY;
+    let lookTargetY = portraitY - 0.08;
+
+    if (cameraFraming === 'face') {
+      targetZ = faceZ;
+      targetY = faceY;
+      lookTargetY = faceY;
+    } else if (cameraFraming === 'full_body') {
+      targetZ = fullBodyZ;
+      targetY = fullBodyCenterY + 0.06;
+      lookTargetY = fullBodyCenterY;
+    }
+
+    // Auto-lerp camera position and target unless user is actively dragging OrbitControls
+    if (!isUserInteracting.current) {
+      camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZ, dt * 5);
+      camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, dt * 5);
+      camera.position.x = THREE.MathUtils.lerp(camera.position.x, 0, dt * 5);
+
+      currentTargetRef.current.y = THREE.MathUtils.lerp(currentTargetRef.current.y, lookTargetY, dt * 5);
+      currentTargetRef.current.x = THREE.MathUtils.lerp(currentTargetRef.current.x, 0, dt * 5);
+      currentTargetRef.current.z = THREE.MathUtils.lerp(currentTargetRef.current.z, 0, dt * 5);
+
+      if (controlsRef.current) {
+        controlsRef.current.target.copy(currentTargetRef.current);
+        controlsRef.current.update();
+      } else {
+        camera.lookAt(currentTargetRef.current);
+      }
+    }
   });
 
   return (
     <>
-      {/* Anime Key Light (Warm cinematic golden key) */}
+      <OrbitControls
+        ref={controlsRef}
+        enablePan={false}
+        enableZoom={true}
+        enableRotate={true}
+        minDistance={0.5}
+        maxDistance={4.5}
+        maxPolarAngle={Math.PI / 2 + 0.08}
+        minPolarAngle={Math.PI / 4}
+        onStart={() => {
+          isUserInteracting.current = true;
+        }}
+        onEnd={() => {
+          setTimeout(() => {
+            isUserInteracting.current = false;
+          }, 4000);
+        }}
+      />
+      {/* Studio Key Light */}
       <directionalLight
-        position={[1.2, 1.8, 1.6]}
-        intensity={1.35}
-        color="#FFF6EE"
+        position={[1.2, 1.8, 1.8]}
+        intensity={1.4}
+        color="#FFF6F0"
         castShadow
       />
 
-      {/* Anime Fill Light (Electric Blue / Theme accent) */}
+      {/* Fill Light */}
       <directionalLight
-        position={[-1.6, 0.6, 1.0]}
+        position={[-1.5, 0.8, 1.2]}
         intensity={0.7}
-        color={accentColor}
+        color="#F8ECE6"
       />
 
-      {/* Aurora Rose Rim Light from Behind (Accentuates long dark hair & traditional attire textures) */}
+      {/* Rim Lights from Behind */}
       <directionalLight
-        position={[0, 1.8, -1.9]}
-        intensity={2.6}
-        color="#FF3377"
+        position={[0, 1.6, -1.8]}
+        intensity={2.2}
+        color="#FFE4EB"
       />
       <directionalLight
-        position={[-1.2, 1.3, -1.4]}
-        intensity={1.6}
-        color="#FB7185"
+        position={[-1.2, 1.2, -1.4]}
+        intensity={1.5}
+        color="#FFBAC8"
       />
       <pointLight
-        position={[0, 0.65, -0.6]}
-        intensity={1.6}
-        distance={2.8}
-        color="#FF4D8D"
+        position={[0, 0.5, -0.7]}
+        intensity={1.2}
+        distance={2.5}
+        color="#F5B2C3"
       />
 
-      {/* Gentle Ambient Light (#FFF4E8 as requested) */}
-      <ambientLight intensity={0.92} color="#FFF4E8" />
+      {/* Gentle Ambient Studio Light */}
+      <ambientLight intensity={0.95} color="#FFF5F2" />
 
-      {/* 3D Model: Custom VRM or Custom Indian Anime Girl Model (/models/mery.glb) */}
-      {customVRM ? (
-        <VRMRunner
-          vrmController={customVRM}
-          visemes={visemes}
-          isSpeaking={state === 'speaking'}
-          emotion={emotion}
-          waveGreeting={waveGreeting}
-          onWaveComplete={onWaveComplete}
-        />
-      ) : (
-        <IndianAnimeModelController
-          modelUrl={modelUrl}
-          visemes={visemes}
+      {/* Exclusively Render VRM Model (or loading beacon while model initializes) */}
+      {vrm ? (
+        <CustomVRMRig
+          vrm={vrm}
+          state={state}
           isSpeaking={state === 'speaking'}
           emotion={emotion}
           waveGreeting={waveGreeting}
           onWaveComplete={onWaveComplete}
           accentColor={accentColor}
         />
+      ) : (
+        <VRMLoadingBeacon accentColor={accentColor} />
       )}
 
-      {/* Floating Cyber Particle Dust in Avatar Aura */}
+      {/* Soft Floating Sparkle Dust in Aura */}
       <AvatarAuraParticles accentColor={accentColor} isSpeaking={state === 'speaking'} />
     </>
   );
 }
 
-// Soft floating sparkles around the anime avatar
+// Subtle floating particle dust around the avatar
 function AvatarAuraParticles({ accentColor, isSpeaking }: { accentColor: string; isSpeaking: boolean }) {
   const pointsRef = useRef<THREE.Points>(null);
-  const count = 35;
+  const count = 32;
 
   const [positions] = useState(() => {
-    const pos = new Float32Array(count * 3);
+    const arr = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 1.8;
-      pos[i * 3 + 1] = (Math.random() - 0.5) * 1.6 + 0.2;
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 0.8;
+      arr[i * 3] = (Math.random() - 0.5) * 1.8;
+      arr[i * 3 + 1] = (Math.random() - 0.5) * 2.2;
+      arr[i * 3 + 2] = (Math.random() - 0.5) * 1.4;
     }
-    return pos;
+    return arr;
   });
 
   useFrame((state) => {
-    if (pointsRef.current) {
-      const t = state.clock.getElapsedTime();
-      pointsRef.current.rotation.y = t * 0.08;
-      const speed = isSpeaking ? 1.6 : 0.8;
-      const pos = pointsRef.current.geometry.attributes.position.array as Float32Array;
-      for (let i = 0; i < count; i++) {
-        pos[i * 3 + 1] += Math.sin(t * speed + i) * 0.0012;
-      }
-      pointsRef.current.geometry.attributes.position.needsUpdate = true;
-    }
+    if (!pointsRef.current) return;
+    const t = state.clock.getElapsedTime();
+    const speed = isSpeaking ? 0.35 : 0.15;
+    pointsRef.current.rotation.y = t * speed * 0.15;
+    pointsRef.current.position.y = Math.sin(t * 0.6) * 0.04;
   });
 
   return (
@@ -276,10 +266,10 @@ function AvatarAuraParticles({ accentColor, isSpeaking }: { accentColor: string;
         />
       </bufferGeometry>
       <pointsMaterial
-        size={0.035}
-        color={accentColor}
+        size={0.022}
+        color="#F5B2C3"
         transparent
-        opacity={0.65}
+        opacity={0.45}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
       />
@@ -291,116 +281,239 @@ export const AnimeAvatar3D: React.FC<AnimeAvatar3DProps> = ({
   state = 'idle',
   emotion = 'warm',
   onClick,
-  onStartSession,
-  accentColor = '#00A3FF',
+  accentColor = '#00ff66',
   className = '',
 }) => {
-  const [cameraFraming, setCameraFraming] = useState<'portrait' | 'upper_body'>('portrait');
-  const [waveGreeting, setWaveGreeting] = useState<boolean>(true); // Initial greeting wave
-  const [modelUrl, setModelUrl] = useState<string>('/models/mery.glb');
-  const [customVRM, setCustomVRM] = useState<VRMController | null>(null);
-  const [isLoadingVRM, setIsLoadingVRM] = useState(false);
+  // Camera framing: 'face' (eyes & expression), 'portrait' (half body & gestures), 'full_body' (complete model from head to feet)
+  const [cameraFraming, setCameraFraming] = useState<CameraFramingMode>('portrait');
+
+  // Trigger wave greeting
+  const [waveGreeting, setWaveGreeting] = useState<boolean>(false);
+
+  // Active VRM Model State
+  const [vrm, setVrm] = useState<VRM | null>(null);
+  const [customMeta, setCustomMeta] = useState<CustomVRMMetadata | null>(null);
+  const [usingCustomVRM, setUsingCustomVRM] = useState<boolean>(false);
+  const [isLoadingVRM, setIsLoadingVRM] = useState<boolean>(false);
+  const [loadProgress, setLoadProgress] = useState<number>(0);
+  const [isVRMModalOpen, setIsVRMModalOpen] = useState<boolean>(false);
   const [vrmError, setVrmError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingVRM, setIsDraggingVRM] = useState<boolean>(false);
 
-  // Live audio lip-sync state updated every animation frame
-  const [visemes, setVisemes] = useState<VisemeWeights>({
-    mouthOpen: 0,
-    aa: 0,
-    ih: 0,
-    ou: 0,
-    ee: 0,
-    oh: 0,
-    volume: 0,
-  });
-
-  // Global lip-sync tick loop
-  useEffect(() => {
-    let animId: number;
-    let lastTime = performance.now();
-
-    const loop = () => {
-      const now = performance.now();
-      const dt = Math.min((now - lastTime) / 1000, 0.05);
-      lastTime = now;
-
-      const current = lipSyncAnalyzer.update(dt, state === 'speaking');
-      setVisemes({ ...current });
-      animId = requestAnimationFrame(loop);
-    };
-
-    animId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animId);
-  }, [state]);
-
-  // Handle manual 3D model upload (.glb / .gltf / .vrm)
-  const handleVRMUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // Helper to load the bundled default VRM model
+  const loadDefaultVRM = async (isCancelledRef: { current: boolean }) => {
     try {
       setIsLoadingVRM(true);
-      setVrmError(null);
-      const blobUrl = URL.createObjectURL(file);
-
-      if (file.name.toLowerCase().endsWith('.vrm')) {
-        const controller = await loadVRMModel(blobUrl);
-        if (customVRM) {
-          customVRM.dispose();
+      setLoadProgress(15);
+      const result = await loadVRMFromSource('/models/default_avatar.vrm', (evt) => {
+        if (evt.lengthComputable && evt.total > 0) {
+          setLoadProgress(Math.round((evt.loaded / evt.total) * 100));
         }
-        setCustomVRM(controller);
-      } else {
-        // Standard GLB / GLTF model
-        if (customVRM) {
-          customVRM.dispose();
-          setCustomVRM(null);
-        }
-        setModelUrl(blobUrl);
+      });
+      if (!isCancelledRef.current) {
+        setVrm(result.vrm);
+        setCustomMeta({
+          name: 'Default VRM Avatar',
+          size: 10776032,
+          uploadedAt: Date.now(),
+          modelTitle: result.name || 'Default VRM Humanoid',
+          modelAuthor: result.author,
+        });
+        setUsingCustomVRM(false);
       }
-      setIsLoadingVRM(false);
     } catch (err: any) {
-      console.warn('Model load notice:', err);
-      setVrmError('Notice loading custom model. Using built-in 3D avatar.');
-      setIsLoadingVRM(false);
+      console.warn('Notice loading default VRM model:', err);
+    } finally {
+      if (!isCancelledRef.current) {
+        setIsLoadingVRM(false);
+        setLoadProgress(0);
+      }
     }
   };
 
-  // Trigger Wave Greeting
-  const handleTriggerWave = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setWaveGreeting(true);
+  // Restore saved custom VRM from IndexedDB, or fallback to default VRM model
+  useEffect(() => {
+    const isCancelledRef = { current: false };
+
+    const restoreOrLoadDefault = async () => {
+      try {
+        const meta = await getCustomVRMMeta();
+        if (meta) {
+          setCustomMeta(meta);
+          const blob = await getCustomVRMBlob();
+          if (blob && !isCancelledRef.current) {
+            setIsLoadingVRM(true);
+            setLoadProgress(20);
+            const result = await loadVRMFromSource(blob, (evt) => {
+              if (evt.lengthComputable && evt.total > 0) {
+                setLoadProgress(Math.round((evt.loaded / evt.total) * 100));
+              }
+            });
+            if (!isCancelledRef.current) {
+              setVrm(result.vrm);
+              setUsingCustomVRM(true);
+              setIsLoadingVRM(false);
+              return;
+            }
+          }
+        }
+
+        // If no custom VRM in IndexedDB, load default VRM model
+        if (!isCancelledRef.current) {
+          await loadDefaultVRM(isCancelledRef);
+        }
+      } catch (err) {
+        console.warn('Notice restoring VRM model:', err);
+        if (!isCancelledRef.current) {
+          await loadDefaultVRM(isCancelledRef);
+        }
+      }
+    };
+
+    restoreOrLoadDefault();
+
+    // Listeners for external triggers from AvatarControlsModal and header
+    const handleGlobalOpenVRM = () => {
+      setIsVRMModalOpen(true);
+    };
+    const handleGlobalSetFraming = (e: any) => {
+      if (e?.detail) setCameraFraming(e.detail);
+    };
+    const handleGlobalTriggerWave = () => {
+      setWaveGreeting(true);
+    };
+    const handleGlobalResetVRM = () => {
+      handleResetToDefault();
+    };
+
+    window.addEventListener('open-vrm-upload', handleGlobalOpenVRM);
+    window.addEventListener('set-avatar-framing', handleGlobalSetFraming);
+    window.addEventListener('trigger-avatar-wave', handleGlobalTriggerWave);
+    window.addEventListener('reset-avatar-vrm', handleGlobalResetVRM);
+
+    return () => {
+      isCancelledRef.current = true;
+      window.removeEventListener('open-vrm-upload', handleGlobalOpenVRM);
+      window.removeEventListener('set-avatar-framing', handleGlobalSetFraming);
+      window.removeEventListener('trigger-avatar-wave', handleGlobalTriggerWave);
+      window.removeEventListener('reset-avatar-vrm', handleGlobalResetVRM);
+    };
+  }, []);
+
+  // Broadcast avatar state changes so header and modal stay synced
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent('avatar-status-change', {
+        detail: {
+          cameraFraming,
+          usingCustomVRM,
+          customVRMTitle: customMeta?.name || 'Default VRM Avatar',
+        },
+      })
+    );
+  }, [cameraFraming, usingCustomVRM, customMeta]);
+
+  // Handle VRM File Upload
+  const handleUploadVRM = async (file: File) => {
+    setIsLoadingVRM(true);
+    setLoadProgress(10);
+    setVrmError(null);
+
+    try {
+      const result = await loadVRMFromSource(file, (evt) => {
+        if (evt.lengthComputable && evt.total > 0) {
+          setLoadProgress(Math.round((evt.loaded / evt.total) * 100));
+        }
+      });
+
+      const meta = await saveCustomVRM(file, file.name, {
+        modelTitle: result.name,
+        modelAuthor: result.author,
+      });
+
+      setVrm(result.vrm);
+      setCustomMeta(meta);
+      setUsingCustomVRM(true);
+      setIsVRMModalOpen(false);
+    } catch (err: any) {
+      console.error('Error loading uploaded VRM:', err);
+      const msg = err?.message || 'Failed to load VRM model. Ensure the file is a valid .vrm 3D model.';
+      setVrmError(msg);
+      throw new Error(msg);
+    } finally {
+      setIsLoadingVRM(false);
+      setLoadProgress(0);
+    }
+  };
+
+  // Revert back to the default VRM avatar model
+  const handleResetToDefault = async () => {
+    await deleteCustomVRM();
+    const isCancelledRef = { current: false };
+    await loadDefaultVRM(isCancelledRef);
   };
 
   return (
     <div
       className={`w-full h-full relative flex items-center justify-center select-none ${className}`}
       onClick={onClick}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingVRM(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingVRM(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingVRM(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          const file = e.dataTransfer.files[0];
+          handleUploadVRM(file).catch(() => {
+            setIsVRMModalOpen(true);
+          });
+        }
+      }}
     >
-      {/* Hidden file input for 3D model loading */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        accept=".vrm,.glb,.gltf"
-        className="hidden"
-        onChange={handleVRMUpload}
-      />
-
-      {/* Cyber Glow Halo Aura */}
+      {/* Soft Glow Halo Aura */}
       <div
-        className="absolute w-64 h-64 sm:w-80 sm:h-80 rounded-full pointer-events-none transition-all duration-700 -z-10"
+        className="absolute w-72 h-72 sm:w-96 sm:h-96 rounded-full pointer-events-none transition-all duration-700 -z-10"
         style={{
-          background: `radial-gradient(circle, ${accentColor}28 0%, #0055FF15 45%, transparent 70%)`,
-          filter: 'blur(50px)',
-          transform: state === 'speaking' ? 'scale(1.2)' : 'scale(1.0)',
+          background: `radial-gradient(circle, #F5B2C322 0%, #E39EB012 45%, transparent 70%)`,
+          filter: 'blur(55px)',
+          transform: state === 'speaking' ? 'scale(1.15)' : 'scale(1.0)',
         }}
       />
+
+      {/* Drag & Drop Visual Overlay */}
+      {isDraggingVRM && (
+        <div className="absolute inset-2 z-30 flex flex-col items-center justify-center rounded-2xl bg-black/85 backdrop-blur-md border-2 border-dashed border-[#F5B2C3] text-center p-4 pointer-events-none animate-fadeIn">
+          <Upload className="w-10 h-10 text-[#F5B2C3] animate-bounce mb-2" />
+          <p className="text-sm font-semibold text-white">Drop .VRM 3D Model Here</p>
+          <p className="text-xs text-[#F5B2C3]/80 mt-1">Release to load custom avatar for MERY</p>
+        </div>
+      )}
+
+      {/* VRM Model Loading Progress Indicator */}
+      {isLoadingVRM && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-[#00ff66]/30 shadow-lg text-white pointer-events-none animate-fadeIn">
+          <Loader2 className="w-3.5 h-3.5 text-[#00ff66] animate-spin shrink-0" />
+          <span className="text-[11px] font-telemetry tracking-wide text-white/90">
+            Loading VRM 3D Model{loadProgress > 0 ? ` (${loadProgress}%)` : '...'}
+          </span>
+        </div>
+      )}
 
       {/* Interactive 3D Canvas */}
       <div className="w-full h-full aspect-square relative flex items-center justify-center">
         <Canvas
-          camera={{ position: [0, 0.35, 1.45], fov: 36 }}
+          camera={{ position: [0, 0.36, 1.4], fov: 36 }}
           style={{ width: '100%', height: '100%' }}
-          dpr={[1, 1.75]} // Clamped for mobile 60 FPS performance
+          dpr={[1, 1.75]} // Clamped for smooth mobile 60 FPS performance
           gl={{
             antialias: true,
             alpha: true,
@@ -411,84 +524,56 @@ export const AnimeAvatar3D: React.FC<AnimeAvatar3DProps> = ({
             <AvatarScene
               state={state}
               emotion={emotion}
-              visemes={visemes}
               waveGreeting={waveGreeting}
               onWaveComplete={() => setWaveGreeting(false)}
               accentColor={accentColor}
               cameraFraming={cameraFraming}
-              customVRM={customVRM}
-              modelUrl={modelUrl}
+              vrm={vrm}
             />
           </Suspense>
         </Canvas>
-
-        {/* Loading / Error indicator */}
-        {isLoadingVRM && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-20 text-xs text-[#00A3FF] font-telemetry animate-pulse">
-            <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-            LOADING VRM AVATAR...
-          </div>
-        )}
-        {vrmError && (
-          <div className="absolute top-2 left-2 right-2 px-3 py-1.5 bg-rose-950/80 border border-rose-500/40 rounded text-[11px] text-rose-200 z-20 font-telemetry text-center">
-            {vrmError}
-          </div>
-        )}
       </div>
 
-      {/* Avatar Floating Mini Action Bar */}
+      {/* Subtle Avatar Mode & Framing Trigger */}
       <div
-        className="absolute bottom-2 flex items-center gap-1.5 z-20 pointer-events-auto bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 shadow-lg"
+        className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-30 pointer-events-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Wave Greeting Button */}
         <button
-          id="btn_avatar_wave_action"
-          onClick={handleTriggerWave}
-          className="p-1.5 text-white/70 hover:text-[#00A3FF] hover:bg-white/10 rounded-full transition-colors flex items-center gap-1 text-[10px] font-telemetry"
-          title="Trigger Greeting Wave Gesture"
+          id="btn_avatar_mode_trigger"
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            window.dispatchEvent(new CustomEvent('open-avatar-controls'));
+          }}
+          className="px-2.5 py-1 rounded-full bg-black/65 hover:bg-black/90 border border-white/15 hover:border-[#00ff66]/40 text-white/70 hover:text-white text-[10px] font-telemetry flex items-center gap-1.5 backdrop-blur-md transition-all shadow-md active:scale-95 cursor-pointer"
+          title="Open Avatar Framing & VRM Model Settings"
         >
-          <Hand className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Wave</span>
+          <Sparkles className="w-3 h-3 text-[#00ff66]" />
+          <span>Avatar</span>
+          <span className="text-[9px] text-[#00ff66]/90 uppercase font-semibold">
+            {cameraFraming === 'full_body' ? 'Full' : cameraFraming === 'face' ? 'Face' : 'Half'}
+          </span>
         </button>
-
-        {/* Camera Zoom Framing Toggle (Portrait Close-up vs Upper Body) */}
-        <button
-          id="btn_avatar_toggle_framing"
-          onClick={() => setCameraFraming((prev) => (prev === 'portrait' ? 'upper_body' : 'portrait'))}
-          className="p-1.5 text-white/70 hover:text-[#00A3FF] hover:bg-white/10 rounded-full transition-colors flex items-center gap-1 text-[10px] font-telemetry"
-          title={`Camera view: ${cameraFraming === 'portrait' ? 'Portrait (Chest Up)' : 'Upper Body'}`}
-        >
-          {cameraFraming === 'portrait' ? (
-            <>
-              <ZoomOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Bust</span>
-            </>
-          ) : (
-            <>
-              <ZoomIn className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Portrait</span>
-            </>
-          )}
-        </button>
-
-        {/* Custom VRM Upload Button */}
-        <button
-          id="btn_avatar_upload_vrm"
-          onClick={() => fileInputRef.current?.click()}
-          className="p-1.5 text-white/70 hover:text-[#00A3FF] hover:bg-white/10 rounded-full transition-colors flex items-center gap-1 text-[10px] font-telemetry"
-          title="Load Custom VRM / GLTF Anime Model"
-        >
-          <Upload className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">VRM</span>
-        </button>
-
-        {/* Current Emotion Badge */}
-        <span className="px-2 py-0.5 rounded-full text-[9px] font-telemetry tracking-wider uppercase bg-[#00A3FF]/20 text-[#00A3FF] border border-[#00A3FF]/30 flex items-center gap-1">
-          <Sparkles className="w-2.5 h-2.5" />
-          {emotion}
-        </span>
       </div>
+
+      {/* VRM 3D Model Upload & Management Modal */}
+      <VRMUploadModal
+        isOpen={isVRMModalOpen}
+        onClose={() => setIsVRMModalOpen(false)}
+        onUploadVRM={handleUploadVRM}
+        onResetToDefault={handleResetToDefault}
+        isLoading={isLoadingVRM}
+        loadProgress={loadProgress}
+        currentMeta={customMeta}
+        usingCustomVRM={usingCustomVRM}
+        onToggleModel={(useCustom) => {
+          if (!useCustom) {
+            handleResetToDefault();
+          }
+        }}
+        errorMessage={vrmError}
+      />
     </div>
   );
 };

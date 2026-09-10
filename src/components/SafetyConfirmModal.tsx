@@ -43,7 +43,7 @@ export const SafetyConfirmModal: React.FC<SafetyConfirmModalProps> = ({ request,
                   {request.title}
                 </h3>
                 <p className="text-[11px] font-telemetry text-rose-400/80 uppercase tracking-wider">
-                  M4 Safety Protocol · Confirmation Required
+                  Safety Protocol · Confirmation Required
                 </p>
               </div>
             </div>

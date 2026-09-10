@@ -10,7 +10,9 @@ import {
   Terminal,
   Activity,
   CornerDownLeft,
+  Smile,
 } from 'lucide-react';
+import { EmojiPickerPopover } from './EmojiPickerPopover';
 import { ChatMessage } from '../types';
 
 interface TranscriptDrawerProps {
@@ -42,8 +44,10 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
   isThinking,
 }) => {
   const [text, setText] = useState('');
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const emojiTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -54,9 +58,27 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
     }
   }, [isOpen, messages, isThinking]);
 
+  const handleInsertEmoji = (emoji: string) => {
+    const input = inputRef.current;
+    if (!input) {
+      setText((prev) => prev + emoji);
+      return;
+    }
+    const start = input.selectionStart ?? text.length;
+    const end = input.selectionEnd ?? text.length;
+    const nextText = text.slice(0, start) + emoji + text.slice(end);
+    setText(nextText);
+    requestAnimationFrame(() => {
+      input.focus();
+      const newPos = start + emoji.length;
+      input.setSelectionRange(newPos, newPos);
+    });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim() || isThinking) return;
+    setIsEmojiPickerOpen(false);
     onSendMessage(text.trim());
     setText('');
   };
@@ -254,6 +276,21 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
                   disabled={isThinking}
                   className="w-full bg-white/[0.03] border border-white/[0.12] focus:border-[#00A3FF] px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none transition-all font-sans"
                 />
+                {/* Side Emoji Box Button */}
+                <button
+                  ref={emojiTriggerRef}
+                  type="button"
+                  id="btn-chat-box-emoji"
+                  onClick={() => setIsEmojiPickerOpen(!isEmojiPickerOpen)}
+                  className={`p-2.5 rounded-lg border border-white/[0.12] bg-white/[0.03] transition-all cursor-pointer shrink-0 flex items-center justify-center ${
+                    isEmojiPickerOpen
+                      ? 'text-[#00A3FF] border-[#00A3FF] bg-[#00A3FF]/15'
+                      : 'text-white/50 hover:text-[#00A3FF] hover:border-[#00A3FF]/40 hover:bg-white/[0.06]'
+                  }`}
+                  title={isEmojiPickerOpen ? 'Close emoji picker' : 'Open emoji box'}
+                >
+                  <Smile className="w-4 h-4" />
+                </button>
                 <button
                   id="btn-chat-box-send"
                   type="submit"
@@ -263,6 +300,16 @@ export const TranscriptDrawer: React.FC<TranscriptDrawerProps> = ({
                   <Send className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">SEND</span>
                 </button>
+
+                {/* Floating Emoji Box Popover */}
+                <EmojiPickerPopover
+                  isOpen={isEmojiPickerOpen}
+                  onClose={() => setIsEmojiPickerOpen(false)}
+                  onSelectEmoji={handleInsertEmoji}
+                  triggerRef={emojiTriggerRef}
+                  accentColor="blue"
+                  align="right"
+                />
               </form>
             </div>
           </motion.div>

@@ -42,7 +42,7 @@ export const ActivityAwarenessPanel: React.FC<ActivityAwarenessPanelProps> = ({
   }, []);
 
   const apps: { name: string; pattern: ActivityPattern }[] = [
-    { name: 'Visual Studio Code — Project M4', pattern: 'coding' },
+    { name: 'Visual Studio Code — Project Workspace', pattern: 'coding' },
     { name: 'Ableton Live 12 — Spatial Suite', pattern: 'video_editing' },
     { name: 'Figma — Aurora Design System', pattern: 'writing' },
     { name: 'Google Chrome — AI Research & Docs', pattern: 'studying' },

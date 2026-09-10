@@ -200,6 +200,16 @@ export function detectSpokenLanguage(
   }
 
   if (englishScore > 0 && gujaratiScore === 0 && hindiScore === 0) {
+    // Strict rule: If active language is Gujarati, NEVER switch to English unless the user explicitly requests it
+    const explicitEnglishRequest = /switch to english|speak in english|in english|talk in english/i.test(trimmed);
+    if (currentLanguage === 'gu-IN' && !explicitEnglishRequest && englishScore < 4) {
+      return {
+        detectedLang: 'gu-IN',
+        isConfidenceHigh: false,
+        isMixed: true,
+        reason: `Guarding Gujarati preference against transient English tokens (score: ${englishScore})`,
+      };
+    }
     return {
       detectedLang: 'en-IN',
       isConfidenceHigh: englishScore >= 1,

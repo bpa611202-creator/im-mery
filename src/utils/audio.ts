@@ -2,6 +2,101 @@
 import { humanConversationEngine } from '../modules/HumanConversationEngine';
 import { TurnTakingAnalysis } from '../types';
 
+/**
+ * Phonetically translates Gujarati Unicode characters (U+0A81 - U+0AF9)
+ * into Devanagari script (U+0901 - U+0979) via constant offset 0x0180 (384).
+ * This enables high-fidelity native Indian Hindi female voices (e.g. Swara, Google हिन्दी)
+ * to pronounce Gujarati speech with authentic Indic phonetics without skipping or dropping words.
+ */
+export function convertGujaratiToDevanagari(text: string): string {
+  let res = '';
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code >= 0x0A81 && code <= 0x0AF9) {
+      res += String.fromCharCode(code - 0x0180);
+    } else {
+      res += text[i];
+    }
+  }
+  return res;
+}
+
+const GUJARATI_CHAR_MAP: Record<string, string> = {
+  '\u0A85': 'a', '\u0A86': 'aa', '\u0A87': 'i', '\u0A88': 'ee', '\u0A89': 'u', '\u0A8A': 'oo',
+  '\u0A8F': 'e', '\u0A90': 'ai', '\u0A93': 'o', '\u0A94': 'au',
+  '\u0A95': 'k', '\u0A96': 'kh', '\u0A97': 'g', '\u0A98': 'gh',
+  '\u0A9A': 'ch', '\u0A9B': 'chh', '\u0A9C': 'j', '\u0A9D': 'jh',
+  '\u0A9E': 'ny', '\u0A9F': 't', '\u0AA0': 'th', '\u0AA1': 'd', '\u0AA2': 'dh', '\u0AA3': 'n',
+  '\u0AA4': 't', '\u0AA5': 'th', '\u0AA6': 'd', '\u0AA7': 'dh', '\u0AA8': 'n',
+  '\u0AAA': 'p', '\u0AAB': 'f', '\u0AAC': 'b', '\u0AAD': 'bh', '\u0AAE': 'm',
+  '\u0AAF': 'y', '\u0AB0': 'r', '\u0AB2': 'l', '\u0AB3': 'l', '\u0AB5': 'v',
+  '\u0AB6': 'sh', '\u0AB7': 'sh', '\u0AB8': 's', '\u0AB9': 'h',
+  '\u0ABE': 'aa', '\u0ABF': 'i', '\u0AC0': 'ee', '\u0AC1': 'u', '\u0AC2': 'oo',
+  '\u0AC7': 'e', '\u0AC8': 'ai', '\u0ACB': 'o', '\u0ACC': 'au',
+  '\u0A82': 'n', '\u0A83': 'h', '\u0ACD': '',
+};
+
+const GUJARATI_WORD_OVERRIDES: Record<string, string> = {
+  'હું': 'Hun',
+  'છું': 'chhun',
+  'છે': 'chhe',
+  'મેરી': 'Mery',
+  'સિસ્ટમ': 'system',
+  'ઓનલાઇન': 'online',
+  'અને': 'ane',
+  'સાંભળી': 'sambhadi',
+  'રહી': 'rahi',
+  'આજે': 'aaje',
+  'આપણો': 'aapno',
+  'શું': 'shun',
+  'પ્લાન': 'plan',
+  'કેમ': 'kem',
+  'છો': 'chho',
+  'વાત': 'vaat',
+  'કરવી': 'karvi',
+  'બોલો': 'bolo',
+  'કોઈ': 'koi',
+  'વાંધો': 'vandho',
+  'નહીં': 'nahin',
+  'મજામાં': 'majama',
+  'તમે': 'tame',
+  'મારે': 'mare',
+  'કાઠિયાવાડી': 'Kathiyawadi',
+  'ગુજરાતી': 'Gujarati',
+  'સમજી': 'samji',
+  'હા': 'ha',
+  'ના': 'na',
+};
+
+/**
+ * Fallback phonetic transliteration for platforms with ONLY English female voices
+ * (e.g. standard macOS/iOS without Indic voice pack installed).
+ * Prevents silence or garbled glyph errors and guarantees crisp verbal articulation.
+ */
+export function transliterateGujaratiToGujlish(text: string): string {
+  let processed = text;
+  for (const [w, repl] of Object.entries(GUJARATI_WORD_OVERRIDES)) {
+    processed = processed.split(w).join(repl);
+  }
+
+  let res = '';
+  for (let i = 0; i < processed.length; i++) {
+    const ch = processed[i];
+    if (GUJARATI_CHAR_MAP[ch] !== undefined) {
+      res += GUJARATI_CHAR_MAP[ch];
+      const isConsonant = ch >= '\u0A95' && ch <= '\u0AB9';
+      const nextCh = processed[i + 1];
+      const nextIsMatraOrVirama = nextCh >= '\u0ABE' && nextCh <= '\u0ACD';
+      if (isConsonant && !nextIsMatraOrVirama && nextCh && nextCh !== ' ' && nextCh >= '\u0A80' && nextCh <= '\u0AFF') {
+        res += 'a';
+      }
+    } else {
+      res += ch;
+    }
+  }
+  return res;
+}
+
 export interface FullDuplexConfig {
   wakeWordEnabled: boolean;
   onInterimSpeech: (text: string) => void;
@@ -255,10 +350,15 @@ class VoiceService {
     // Stop any previous speech synthesis and clear timers
     this.stopAudio();
 
-    // Clean text of emotion tags, code blocks and markdown symbols
+    // Clean text of emotion tags, code blocks, URLs, markdown symbols, and emojis for smooth, human speech
     const cleanText = text
       .replace(/\[emotion:\s*[^\]]+\]/gi, '')
-      .replace(/[*_#`~]/g, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`[^`]*`/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[*_#~>|\\{}[\]()]/g, '')
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+      .replace(/\s+/g, ' ')
       .trim();
 
     if (!cleanText) {
@@ -273,109 +373,171 @@ class VoiceService {
       }
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.pitch = vocalParams?.pitch ?? 1.05; // Warm, young adult female register
-      utterance.rate = vocalParams?.rate ?? 0.94; // Human natural conversational pacing
-      utterance.volume = 0.95;
+      // Pure, un-mangled human acoustic pitch (1.0 = baseline recording of voice actress)
+      // Clamped strictly to [0.96, 1.04] to prevent DSP vocoder robotic distortion
+      const targetPitch = vocalParams?.pitch ?? 1.0;
+      utterance.pitch = Math.min(1.04, Math.max(0.96, targetPitch));
+      const targetRate = vocalParams?.rate ?? 1.0;
+      utterance.rate = Math.min(1.08, Math.max(0.92, targetRate));
+      utterance.volume = 1.0;
 
       // Keep utterance reference alive on instance so Chromium GC doesn't abort speech prematurely
       this.currentUtterance = utterance;
 
       // 1. Determine requested language locale
+      const hasGujarati = /[\u0A80-\u0AFF]/.test(cleanText);
+      const hasHindi = /[\u0900-\u097F]/.test(cleanText);
+      const isAsciiOnly = /^[A-Za-z0-9\s.,!?'"()\-:;/@#$%^&*_+=\[\]{}<>~`]+$/.test(cleanText);
+
       let requestedLang = this.currentLanguage || 'gu-IN';
-      if (/[\u0A80-\u0AFF]/.test(cleanText)) {
+      if (hasGujarati) {
         requestedLang = 'gu-IN';
-      } else if (/[\u0900-\u097F]/.test(cleanText)) {
+      } else if (hasHindi) {
         requestedLang = 'hi-IN';
+      } else if (isAsciiOnly && (requestedLang === 'gu-IN' || requestedLang === 'hi-IN')) {
+        const hasGujlishWords = /\b(chhe|che|chho|kem|mare|tame|aapno|shun|su|nathi|karvu|karvi|aavi|aavje|majama|ha|na|samji|bol|bolo|mane|tamne)\b/i.test(cleanText);
+        if (!hasGujlishWords) {
+          requestedLang = 'en-IN';
+        }
       }
 
-      console.log('[VOICE] requested:', requestedLang);
+      console.log('[VOICE] requested:', requestedLang, 'hasGujarati:', hasGujarati, 'hasHindi:', hasHindi);
 
       const voices = window.speechSynthesis.getVoices();
+
+      // Absolute male identification filter: reject masculine voices
+      const isMaleVoice = (v: SpeechSynthesisVoice): boolean => {
+        const s = `${v.name} ${v.voiceURI} ${v.lang}`.toLowerCase();
+        return (
+          /\b(male|man|boy|david|george|mark|ravi|hemant|niranjan|madhav|guy|stefan|daniel|oliver|richard|james|brian|russell|michael|paul|tom|alex|fred|shah|neil|alok|ajay|kunal|rahul|sean|pradeep|tarun|microsoft david|microsoft mark|microsoft ravi)\b/i.test(s) ||
+          s.includes('(male)') ||
+          s.includes('- male') ||
+          s.includes(' male ')
+        );
+      };
+
+      // Robotic voice filter: reject mechanical, low-quality synthesizers
+      const isRoboticVoice = (v: SpeechSynthesisVoice): boolean => {
+        const s = `${v.name} ${v.voiceURI}`.toLowerCase();
+        return /\b(espeak|desktop|zira|speech-dispatcher|synthesizer|robot|festival|mbrola|klatt)\b/i.test(s);
+      };
+
+      // Absolute female identification filter: prioritize feminine voices
+      const isFemaleVoice = (v: SpeechSynthesisVoice): boolean => {
+        const s = `${v.name} ${v.voiceURI} ${v.lang}`.toLowerCase();
+        return (
+          !isMaleVoice(v) &&
+          (/\b(female|woman|girl|dhwani|swara|kalpana|diti|geeta|shruti|kavya|vaani|leela|ananya|neerja|heera|priya|sunita|samantha|karen|victoria|fiona|moira|tessa|veena|jenny|aria|ava|emma|sonia|natural|online)\b/i.test(s) ||
+          s.includes('(female)') ||
+          s.includes('- female') ||
+          s.includes(' female '))
+        );
+      };
+
+      // Quality scoring: prioritize modern Natural, Online, Neural, Google, Apple Enhanced female voices
+      const scoreVoice = (v: SpeechSynthesisVoice): number => {
+        const s = `${v.name} ${v.voiceURI}`.toLowerCase();
+        let score = 0;
+        if (isRoboticVoice(v)) score -= 150;
+        if (isMaleVoice(v)) score -= 200;
+        if (isFemaleVoice(v)) score += 50;
+        if (s.includes('natural')) score += 60;
+        if (s.includes('online')) score += 45;
+        if (s.includes('neural')) score += 40;
+        if (s.includes('google')) score += 35;
+        if (s.includes('enhanced')) score += 30;
+        if (s.includes('premium')) score += 30;
+        if (s.includes('siri')) score += 25;
+        return score;
+      };
+
       let selectedVoice: SpeechSynthesisVoice | null = null;
 
       if (requestedLang === 'gu-IN' || requestedLang.startsWith('gu')) {
         utterance.lang = 'gu-IN';
-        // Strict Gujarati matching: only voices whose language starts with 'gu' or name has 'gujarat'
-        selectedVoice =
-          voices.find(
+        utterance.text = cleanText;
+
+        // 1. First priority: Native Gujarati female / natural voice
+        const gujaratiVoices = voices
+          .filter(
             (v) =>
-              v.lang.toLowerCase().startsWith('gu') ||
-              v.lang.toLowerCase().includes('gujarat') ||
-              v.name.toLowerCase().includes('gujarat')
-          ) || null;
+              (v.lang.toLowerCase().startsWith('gu') ||
+                v.lang.toLowerCase().includes('gujarat') ||
+                v.name.toLowerCase().includes('gujarat')) &&
+              !isMaleVoice(v) &&
+              !isRoboticVoice(v)
+          )
+          .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+        selectedVoice = gujaratiVoices.find(isFemaleVoice) || gujaratiVoices[0] || null;
 
         if (selectedVoice) {
           utterance.voice = selectedVoice;
           utterance.lang = selectedVoice.lang || 'gu-IN';
-          console.log('[VOICE] selected:', selectedVoice.name);
-          console.log('[VOICE] locale:', selectedVoice.lang);
+          console.log('[VOICE] Selected native Gujarati voice:', selectedVoice.name, 'locale:', utterance.lang);
         } else {
-          // STRICT: Do NOT assign any English, Hindi, or other voice!
+          // Keep utterance.lang = 'gu-IN' and utterance.voice = null so the browser's native Gujarati engine speaks directly
           utterance.voice = null;
           utterance.lang = 'gu-IN';
-          console.warn('[VOICE] Warning: No native Gujarati voice found in browser voices list. Using browser engine gu-IN locale synthesis without foreign voice fallback.');
-          console.log('[VOICE] selected: none (browser native gu-IN)');
-          console.log('[VOICE] locale: gu-IN');
+          console.log('[VOICE] Using browser-native Gujarati voice synthesis (utterance.lang = "gu-IN")');
         }
       } else if (requestedLang === 'hi-IN' || requestedLang.startsWith('hi')) {
         utterance.lang = 'hi-IN';
-        // Strict Hindi matching: only voices whose language starts with 'hi' or name has 'hindi'
-        selectedVoice =
-          voices.find(
+        const hindiVoices = voices
+          .filter(
             (v) =>
-              v.lang.toLowerCase().startsWith('hi') ||
-              v.lang.toLowerCase().includes('hindi') ||
-              v.name.toLowerCase().includes('hindi')
-          ) || null;
+              (v.lang.toLowerCase().startsWith('hi') ||
+                v.name.toLowerCase().includes('hindi')) &&
+              !isMaleVoice(v) &&
+              !isRoboticVoice(v)
+          )
+          .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+        selectedVoice = hindiVoices.find(isFemaleVoice) || hindiVoices[0] || null;
+
+        if (!selectedVoice) {
+          selectedVoice = voices
+            .filter(
+              (v) =>
+                (v.lang.toLowerCase().startsWith('en-in') || v.name.toLowerCase().includes('india')) &&
+                !isMaleVoice(v) &&
+                !isRoboticVoice(v) &&
+                isFemaleVoice(v)
+            )
+            .sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] || null;
+        }
 
         if (selectedVoice) {
           utterance.voice = selectedVoice;
-          utterance.lang = selectedVoice.lang || 'hi-IN';
-          console.log('[VOICE] selected:', selectedVoice.name);
-          console.log('[VOICE] locale:', selectedVoice.lang);
+          utterance.lang = selectedVoice.lang.toLowerCase().startsWith('hi') ? selectedVoice.lang : 'hi-IN';
+          console.log('[VOICE] Selected natural Hindi voice:', selectedVoice.name);
         } else {
-          // STRICT: Do NOT assign any English or other voice!
           utterance.voice = null;
           utterance.lang = 'hi-IN';
-          console.warn('[VOICE] Warning: No native Hindi voice found in browser voices list. Using browser engine hi-IN locale synthesis without foreign voice fallback.');
-          console.log('[VOICE] selected: none (browser native hi-IN)');
-          console.log('[VOICE] locale: hi-IN');
         }
       } else {
         // English
         const enLocale = requestedLang.startsWith('en') ? requestedLang : 'en-IN';
         utterance.lang = enLocale;
-        // Prefer en-IN Indian English or high quality English voice, but STRICTLY English (lang starts with 'en')
-        selectedVoice =
-          voices.find(
+        const enVoices = voices
+          .filter(
             (v) =>
-              v.lang.toLowerCase().startsWith('en-in') ||
-              (v.lang.toLowerCase().startsWith('en') && v.name.toLowerCase().includes('india'))
-          ) ||
-          voices.find(
-            (v) =>
-              (v.name.includes('Natural') ||
-                v.name.includes('Google') ||
-                v.name.includes('Samantha') ||
-                v.name.includes('Victoria') ||
-                v.name.includes('Karen') ||
-                v.name.includes('Zira') ||
-                v.name.includes('Female')) &&
-              v.lang.toLowerCase().startsWith('en')
-          ) ||
-          voices.find((v) => v.lang.toLowerCase().startsWith('en')) ||
-          null;
+              v.lang.toLowerCase().startsWith('en') &&
+              !isMaleVoice(v) &&
+              !isRoboticVoice(v) &&
+              isFemaleVoice(v)
+          )
+          .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+        selectedVoice = enVoices[0] || null;
 
         if (selectedVoice) {
           utterance.voice = selectedVoice;
           utterance.lang = selectedVoice.lang || enLocale;
-          console.log('[VOICE] selected:', selectedVoice.name);
-          console.log('[VOICE] locale:', selectedVoice.lang);
+          console.log('[VOICE] Selected natural English voice:', selectedVoice.name);
         } else {
           utterance.voice = null;
           utterance.lang = enLocale;
-          console.log('[VOICE] selected: none (browser default en-IN)');
-          console.log('[VOICE] locale:', enLocale);
         }
       }
 
@@ -624,7 +786,7 @@ class VoiceService {
 
         // If Wake Word mode is active and not yet woken up, scan for wake word
         if (this.fullDuplexConfig?.wakeWordEnabled && !this.isWokenUp) {
-          const wakeWordMatch = candidateText.match(/\b(hey\s+mery|hey\s+mary|hey\s+m4|mery|mary|m4)\b/i);
+          const wakeWordMatch = candidateText.match(/\b(hey\s+mery|hey\s+mary|mery|mary)\b|(મેરી|હેય\s*મેરી|મારી|એલા\s*મેરી)/i);
           if (wakeWordMatch) {
             this.isWokenUp = true;
             this.playAcousticChime('wake_word');

@@ -169,7 +169,7 @@ export const ChatTimeline: React.FC<ChatTimelineProps> = ({
                       </button>
 
                       <span className="text-[10px] text-white/30 italic">
-                        M4 Companion Sync
+                        Companion Sync
                       </span>
                     </div>
                   )}

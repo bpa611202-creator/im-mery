@@ -25,6 +25,8 @@ import {
   Square,
   Settings2,
   HelpCircle,
+  Box,
+  Upload,
 } from 'lucide-react';
 import { ProviderConfig, ProviderCategory, VoiceSettings, StructuredLog, LogLevel, ScreenShareSettings, ScreenResolution } from '../types';
 import { providerManager } from '../utils/providerManager';
@@ -494,13 +496,13 @@ export const ApiManagementModal: React.FC<ApiManagementModalProps> = ({ isOpen, 
                   <div className="space-y-2">
                     <div className="flex justify-between text-xs">
                       <span className="text-white/80">Speech Cadence (Speed)</span>
-                      <span className="font-telemetry text-[#E7B7A5]">{voiceSettings.speed}x</span>
+                      <span className="font-telemetry text-[#E7B7A5]">{(voiceSettings.speed || 1.0).toFixed(2)}x</span>
                     </div>
                     <input
                       type="range"
-                      min="0.75"
-                      max="1.3"
-                      step="0.05"
+                      min="0.85"
+                      max="1.15"
+                      step="0.01"
                       value={voiceSettings.speed}
                       onChange={(e) =>
                         providerManager.updateVoiceSettings({ speed: parseFloat(e.target.value) })
@@ -511,14 +513,14 @@ export const ApiManagementModal: React.FC<ApiManagementModalProps> = ({ isOpen, 
 
                   <div className="space-y-2">
                     <div className="flex justify-between text-xs">
-                      <span className="text-white/80">Vocal Pitch Register</span>
-                      <span className="font-telemetry text-[#E7B7A5]">{voiceSettings.pitch}x</span>
+                      <span className="text-white/80">Vocal Pitch (1.0 = Natural Human)</span>
+                      <span className="font-telemetry text-[#E7B7A5]">{(voiceSettings.pitch || 1.0).toFixed(2)}x</span>
                     </div>
                     <input
                       type="range"
-                      min="0.8"
-                      max="1.3"
-                      step="0.05"
+                      min="0.95"
+                      max="1.05"
+                      step="0.01"
                       value={voiceSettings.pitch}
                       onChange={(e) =>
                         providerManager.updateVoiceSettings({ pitch: parseFloat(e.target.value) })
@@ -623,6 +625,29 @@ export const ApiManagementModal: React.FC<ApiManagementModalProps> = ({ isOpen, 
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* 3D Avatar Model & VRM Integration */}
+              <div className="p-5 rounded-2xl bg-[#150F28] border border-white/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Box className="w-4 h-4 text-[#F5B2C3]" />
+                    <h3 className="text-sm font-semibold text-white">3D Avatar Model (.VRM)</h3>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      window.dispatchEvent(new CustomEvent('open-vrm-upload'));
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#F5B2C3]/20 border border-[#F5B2C3]/40 text-xs text-[#F5B2C3] hover:bg-[#F5B2C3]/30 flex items-center gap-1.5 transition-all cursor-pointer font-medium"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Upload / Switch VRM Model
+                  </button>
+                </div>
+                <p className="text-xs text-white/60">
+                  Upload your custom 3D anime model (.vrm) created with VRoid Studio, Booth, or Blender. Supports automated lip-sync, autonomous blinking, looking around, and spring bone physics.
+                </p>
               </div>
             </div>
           )}

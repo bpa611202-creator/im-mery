@@ -150,7 +150,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                 </div>
                 <div>
                   <h2 className="font-display font-semibold text-lg text-[#FFFFFF]">
-                    M4 System Controller
+                    System Controller
                   </h2>
                   <p className="text-xs text-[#00A3FF] flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
@@ -406,7 +406,7 @@ export const SystemControlDashboard: React.FC<SystemControlDashboardProps> = ({
                           <button
                             onClick={() => handleDeleteFile(file.id)}
                             className="p-1.5 rounded-lg text-rose-400/70 hover:text-rose-300 hover:bg-rose-500/20 transition-all"
-                            title="Delete file (Requires M4 Safety Confirmation)"
+                            title="Delete file (Requires Safety Confirmation)"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
