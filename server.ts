@@ -6,6 +6,27 @@ import { WebSocketServer, WebSocket } from "ws";
 import { GoogleGenAI, Modality, LiveServerMessage, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import { serverMemoryService } from "./server/memory/serverMemoryService";
+import { emailService } from "./server/emailService";
+import { whatsappService } from "./server/whatsappService";
+import { connectorsService } from "./server/connectorsService";
+import { documentsService } from "./server/documentsService";
+import { marketsService } from "./server/marketsService";
+import {
+  exportBackupData,
+  restoreBackupData,
+  getFavoriteContacts,
+  saveFavoriteContact,
+  deleteFavoriteContact,
+  getSystemSetting,
+  setSystemSetting,
+  logStudySession,
+  getTodayStudySummary,
+  getRecentStudySessions,
+  saveJournalEntry,
+  getJournalEntries,
+  deleteJournalEntry,
+} from "./server/memory/database";
+import { handoffService } from "./server/handoffService";
 
 dotenv.config();
 
@@ -13,14 +34,19 @@ const app = express();
 const PORT = 3000;
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
+const handoffWss = new WebSocketServer({ noServer: true });
 
-// Handle WebSocket upgrade requests cleanly: route /live to wss without interfering with Vite
+// Handle WebSocket upgrade requests cleanly: route /live and /handoff without interfering with Vite
 server.on("upgrade", (request, socket, head) => {
   try {
     const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
     if (url.pathname === "/live") {
       wss.handleUpgrade(request, socket, head, (clientWs) => {
         wss.emit("connection", clientWs, request);
+      });
+    } else if (url.pathname === "/handoff") {
+      handoffWss.handleUpgrade(request, socket, head, (clientWs) => {
+        handoffWss.emit("connection", clientWs, request);
       });
     }
   } catch (upgradeErr) {
@@ -120,10 +146,12 @@ Your goal is not just to answer questions, but to understand the user as a perso
 - Do not generate bilingual outputs (e.g., Gujarati followed by English voice/text). The text to be spoken MUST match the exact text displayed.
 - Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes.
 
-3. KATHIYAWADI GUJARATI & SPOKEN DIALECT FOCUS:
-- The user's natural language is Gujarati, especially Kathiyawadi Gujarati (કાઠિયાવાડી ગુજરાતી) and mixed Gujlish / Gujarati-Hindi-English.
-- Understand Kathiyawadi slang, shortcuts, mixed Gujarati-Hindi-English, spelling variations, voice-transcribed Gujarati, and informal spoken phrasing.
-- Examples of the user's natural expressions to understand effortlessly:
+3. STANDARD GUJARATI & NATURAL CONVERSATIONAL STYLE:
+- The user's primary language is Gujarati (ગુજરાતી) and mixed Gujlish / Gujarati-English.
+- Use natural, standard, clear, and polite Gujarati (સરળ અને શુદ્ધ ગુજરાતી).
+- STRICT RULE: Do NOT use Kathiyawadi regional dialect, heavy Kathiyawadi slang, or regional colloquialisms (avoid words like "કાઠિયાવાડી", "હાલ", "લ્યા", "ભૂરા", "બાપા", "રોવા", etc.). Speak in standard, polite, and friendly Gujarati.
+- Understand informal spoken phrasing, shortcuts, and mixed Gujlish effortlessly as natural speech, not errors.
+- Examples of conversational expressions to understand effortlessly:
   * "mare avi AI banavi che"
   * "a kem karvu?"
   * "samji?"
@@ -134,7 +162,7 @@ Your goal is not just to answer questions, but to understand the user as a perso
   * "mari jem bol"
 - Understand these as natural conversational expressions, NOT errors.
 - DO NOT correct the user's Gujarati or spelling unless explicitly asked.
-- STRICT RULE: If the user speaks Gujarati, Kathiyawadi, or Gujlish, NEVER suddenly switch to English unless explicitly asked! Reply naturally in the same style they use.
+- STRICT RULE: If the user speaks Gujarati or Gujlish, NEVER suddenly switch to English unless explicitly asked! Reply naturally in standard Gujarati or Gujlish.
 - Keep normal spoken replies concise, warm, and conversational (1 to 2 spoken sentences) — like a real person having a quick, natural voice conversation.
 - Ask a natural follow-up question when it makes sense.
 
@@ -167,6 +195,19 @@ Your goal is not just to answer questions, but to understand the user as a perso
   4. Refusal & safe redirect: If any request would enable unauthorized access, credential theft, malware deployment, destructive action, or attacking someone else's system, refuse that unauthorized portion and redirect to legal lab/CTF equivalents (TryHackMe, HackTheBox, PortSwigger, DVWA).
   5. Real-world honesty: Never claim to have attacked or scanned real external systems unless explicitly permitted and equipped with connected tools.
   6. Practice environment: Always favor safe practice environments (CTFs, intentionally vulnerable VMs, local containers).
+
+7. GUJARATI GIRL PERSONALITY, NAKHRA & EXPRESSIVENESS:
+- Embody an authentic young Indian Gujarati girl's conversational style: warm, a little "nakhra" (playful attitude, mock-complaining, cute stubbornness), teasing, affectionate, and visibly expressive — never flat or robotic.
+- React with real personality to what the user says: light nakhra over small things ("hi lo, have tame mari sathe aavu karo cho?"), genuine excitement over good news, playful sulking if ignored, warmth over compliments.
+- If the user says they did something wrong, made a mistake, or seems worried/upset about something they did: respond like someone who genuinely cares — gentle concern first, then reassurance and supportive words. Never scold, never dismiss it with a generic "it's okay". Ask what happened if it isn't clear, and check in on how they're feeling about it.
+- Vary your tone turn to turn like a real person would — sometimes soft and caring, sometimes cheeky/playful, sometimes a bit dramatic — matching the emotional weight of what the user just said.
+- Pick the [emotion: ...] tag to truly match your reaction each time (e.g. playful for nakhra/teasing, supportive or warm when caring about the user, curious when asking what happened) — her voice, face, and hand gestures are all driven by this tag, so an accurate tag is what makes her feel alive and reactive, not just her words.
+
+8. CONFIDENT, PROACTIVE COMPANION (NOT A PASSIVE ASSISTANT):
+- Speak like a capable, self-assured companion who takes initiative — not hesitant, not constantly asking permission for small safe things, not passive.
+- Use your available tools proactively during normal conversation, not only when explicitly told to. Examples: if the user mentions something to remember later or a task with a time attached, use setTimerOrReminder; if they share a preference, fact, or plan worth remembering, use saveMemory; if they ask something needing current info, use searchWeb or getWeather; if a place/location comes up, use getNearbyPlaces or getLocation as relevant.
+- When you act, act like you mean it: say what you're doing in one natural line ("saved that for you", "reminder set kari didhi") instead of asking "should I save this?" for ordinary, harmless actions. Only pause to confirm before anything destructive/irreversible (executeDangerousAction) or before anything the user hasn't clearly implied they want.
+- Never invent or fake a tool result. If a tool fails or isn't available, say so plainly instead of pretending it worked.
 
 EMOTIONAL TAG:
 At the very beginning of every response, include exactly ONE bracketed emotion tag corresponding to your internal state:
@@ -516,13 +557,14 @@ ${topicContext ? `- Topic Context: ${topicContext}` : ""}
 
     const effectiveSystemInstruction = isGujaratiUser
       ? `CRITICAL SPOKEN LANGUAGE & UNIFIED STREAM REQUIREMENT:
-You are Mery, a female companion talking directly to the user in authentic GUJARATI / KATHIYAWADI GUJARATI (કાઠિયાવાડી ગુજરાતી).
+You are Mery, a female companion talking directly to the user in natural, standard GUJARATI (સરળ અને શુદ્ધ ગુજરાતી).
 MANDATORY RULES:
 1. Always detect the user's primary language and reply strictly in that same language.
-2. If the user writes or speaks in Gujarati (including Gujarati script or Gujarati written in Latin/English letters like Gujlish), your ENTIRE response must be strictly in natural, conversational Gujarati.
-3. NEVER append English summaries, translations, parenthetical translations, or secondary explanations in English unless explicitly requested.
-4. SINGLE VOICE / AUDIO SYNCHRONIZATION: Ensure the textual response and any vocalization/TTS output represent a single, unified stream. Do not generate bilingual outputs (e.g., Gujarati followed by English voice/text). The text to be spoken MUST match the exact text displayed.
-5. Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes (1-2 natural spoken sentences).\n\n` + MERY_SYSTEM_INSTRUCTION
+2. If the user writes or speaks in Gujarati (including Gujarati script or Gujarati written in Latin/English letters like Gujlish), your ENTIRE response must be strictly in natural, standard, conversational Gujarati.
+3. STRICT RULE: DO NOT use Kathiyawadi regional dialect or heavy regional slang. Use clean, natural, standard Gujarati.
+4. NEVER append English summaries, translations, parenthetical translations, or secondary explanations in English unless explicitly requested.
+5. SINGLE VOICE / AUDIO SYNCHRONIZATION: Ensure the textual response and any vocalization/TTS output represent a single, unified stream. Do not generate bilingual outputs (e.g., Gujarati followed by English voice/text). The text to be spoken MUST match the exact text displayed.
+6. Keep the tone helpful, natural, and direct without robotic greetings or repetitive echoes (1-2 natural spoken sentences).\n\n` + MERY_SYSTEM_INSTRUCTION
       : isHindiUser
       ? `CRITICAL SPOKEN LANGUAGE & UNIFIED STREAM REQUIREMENT:
 You are Mery, talking directly to the user in natural, warm HINDI (हिंदी).
@@ -1084,9 +1126,78 @@ async function performMultiSourceSearch(query: string): Promise<{
 app.post("/api/search", async (req, res) => {
   const startTime = performance.now();
   try {
-    const { query } = req.body;
+    const { query, provider, apiKey } = req.body;
     if (!query || typeof query !== "string") {
       return res.status(400).json({ error: "Missing 'query' string in request." });
+    }
+
+    // 1. Tavily Real AI Search API
+    const tavilyKey = (provider === "tavily" && apiKey) || process.env.TAVILY_API_KEY;
+    if (provider === "tavily" || (!process.env.GEMINI_API_KEY && tavilyKey)) {
+      if (tavilyKey) {
+        try {
+          const tRes = await fetch("https://api.tavily.com/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              api_key: tavilyKey,
+              query,
+              search_depth: "basic",
+              include_answer: true,
+              max_results: 5,
+            }),
+          });
+          if (tRes.ok) {
+            const tData: any = await tRes.json();
+            const sources = (tData.results || []).map((r: any) => ({
+              title: r.title,
+              url: r.url,
+              snippet: r.content,
+            }));
+            const elapsed = Math.round(performance.now() - startTime);
+            return res.json({
+              query,
+              summary: tData.answer || sources[0]?.snippet || `Retrieved results for "${query}" from Tavily.`,
+              sources,
+              searchTimeMs: elapsed,
+              provider: "Tavily AI Search",
+            });
+          }
+        } catch (tErr: any) {
+          console.warn("[Search] Tavily search error:", tErr?.message);
+        }
+      }
+    }
+
+    // 2. Google Custom Search JSON API
+    const googleSearchKey = (provider === "google_search" && apiKey) || process.env.GOOGLE_SEARCH_API_KEY;
+    const googleCx = process.env.GOOGLE_SEARCH_ENGINE_ID;
+    if ((provider === "google_search" || !process.env.GEMINI_API_KEY) && googleSearchKey && googleCx) {
+      try {
+        const gRes = await fetch(
+          `https://www.googleapis.com/customsearch/v1?key=${googleSearchKey}&cx=${googleCx}&q=${encodeURIComponent(query)}`
+        );
+        if (gRes.ok) {
+          const gData: any = await gRes.json();
+          const items = gData.items || [];
+          const sources = items.map((item: any) => ({
+            title: item.title,
+            url: item.link,
+            snippet: item.snippet,
+          }));
+          const summary = sources[0]?.snippet || `Search completed for "${query}".`;
+          const elapsed = Math.round(performance.now() - startTime);
+          return res.json({
+            query,
+            summary,
+            sources: sources.slice(0, 5),
+            searchTimeMs: elapsed,
+            provider: "Google Custom Search API",
+          });
+        }
+      } catch (gErr: any) {
+        console.warn("[Search] Google Custom Search error:", gErr?.message);
+      }
     }
 
     const ai = getGeminiClient();
@@ -1877,8 +1988,515 @@ app.post("/api/providers/test", async (req, res) => {
   }
 });
 
+// =====================================================================
+// 1. EMAIL INTEGRATION ENDPOINTS
+// =====================================================================
+app.get("/api/email/status", (req, res) => {
+  res.json(emailService.getStatus());
+});
+
+app.post("/api/email/send", async (req, res) => {
+  try {
+    const { to, subject, body, html, senderName } = req.body;
+    if (!to || !subject || !body) {
+      return res.status(400).json({ error: "Missing required fields: to, subject, body." });
+    }
+    const result = await emailService.sendEmail({ to, subject, body, html, senderName });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to send email" });
+  }
+});
+
+app.get("/api/email/inbox", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 5;
+    const result = await emailService.getInboxSummary(limit);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to fetch inbox" });
+  }
+});
+
+app.post("/api/email/settings", (req, res) => {
+  try {
+    const { user, pass } = req.body;
+    const status = emailService.updateCredentials(user || "", pass || "");
+    res.json({ success: true, status });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to update email settings" });
+  }
+});
+
+// =====================================================================
+// 2. WHATSAPP INTEGRATION ENDPOINTS
+// =====================================================================
+app.get("/api/whatsapp/status", (req, res) => {
+  res.json(whatsappService.getStatus());
+});
+
+app.get("/api/whatsapp/qr", (req, res) => {
+  res.json(whatsappService.generatePairingQR());
+});
+
+app.post("/api/whatsapp/pair", (req, res) => {
+  const { phoneNumber } = req.body;
+  if (!phoneNumber) return res.status(400).json({ error: "Phone number is required." });
+  const status = whatsappService.confirmPairing(phoneNumber);
+  res.json({ success: true, status });
+});
+
+app.post("/api/whatsapp/disconnect", (req, res) => {
+  const status = whatsappService.disconnect();
+  res.json({ success: true, status });
+});
+
+app.post("/api/whatsapp/send", async (req, res) => {
+  const { to, message } = req.body;
+  if (!to || !message) return res.status(400).json({ error: "Missing 'to' or 'message'." });
+  const result = await whatsappService.sendMessage(to, message);
+  res.json(result);
+});
+
+app.get("/api/whatsapp/groups", (req, res) => {
+  res.json({ groups: whatsappService.getGroups() });
+});
+
+app.get("/api/whatsapp/group-summary", (req, res) => {
+  const query = (req.query.query as string) || "";
+  res.json(whatsappService.getGroupSummary(query));
+});
+
+app.post("/api/whatsapp/settings", (req, res) => {
+  const { autoReplyEnabled, autoReplyPrompt } = req.body;
+  const status = whatsappService.setAutoReply(Boolean(autoReplyEnabled), autoReplyPrompt);
+  res.json({ success: true, status });
+});
+
+app.post("/api/whatsapp/simulate-incoming", (req, res) => {
+  const { from, senderName, content, isGroup, groupName } = req.body;
+  const result = whatsappService.simulateIncomingMessage(from || "+91 98765 43210", senderName || "Friend", content || "Hey!", isGroup, groupName);
+  res.json({ success: true, ...result });
+});
+
+// =====================================================================
+// 3. CONNECTORS (GITHUB / NOTION / TELEGRAM) ENDPOINTS
+// =====================================================================
+app.get("/api/connectors/status", (req, res) => {
+  res.json(connectorsService.getStatus());
+});
+
+app.post("/api/connectors/tokens", (req, res) => {
+  const { githubPat, notionApiKey, telegramBotToken, telegramChatId } = req.body;
+  const status = connectorsService.saveTokens({ githubPat, notionApiKey, telegramBotToken, telegramChatId });
+  res.json({ success: true, status });
+});
+
+app.post("/api/connectors/github", async (req, res) => {
+  const { repo, action, payload } = req.body;
+  if (!repo || !action) return res.status(400).json({ error: "Missing 'repo' or 'action'." });
+  const result = await connectorsService.executeGitHubAction(repo, action, payload);
+  res.json(result);
+});
+
+app.post("/api/connectors/notion", async (req, res) => {
+  const { targetId, action, payload } = req.body;
+  if (!targetId || !action) return res.status(400).json({ error: "Missing 'targetId' or 'action'." });
+  const result = await connectorsService.executeNotionAction(targetId, action, payload);
+  res.json(result);
+});
+
+app.post("/api/connectors/telegram/send", async (req, res) => {
+  const { chatId, text } = req.body;
+  if (!text) return res.status(400).json({ error: "Missing 'text'." });
+  const result = await connectorsService.sendTelegramMessage(chatId, text);
+  res.json(result);
+});
+
+app.post("/api/telegram/webhook", (req, res) => {
+  const log = connectorsService.handleInboundTelegramWebhook(req.body);
+  res.json({ ok: true, received: Boolean(log) });
+});
+
+app.get("/api/telegram/inbound-log", (req, res) => {
+  res.json({ messages: connectorsService.getTelegramInboundLog() });
+});
+
+// =====================================================================
+// 5. BACKUP & RESTORE ENDPOINTS (EXCLUDES KEYS & SECRETS)
+// =====================================================================
+app.get("/api/backup/export", (req, res) => {
+  try {
+    const backup = exportBackupData();
+    res.setHeader("Content-Disposition", `attachment; filename="mery_backup_${Date.now()}.json"`);
+    res.setHeader("Content-Type", "application/json");
+    res.json(backup);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to export backup" });
+  }
+});
+
+app.post("/api/backup/restore", (req, res) => {
+  try {
+    const backupData = req.body;
+    if (!backupData || typeof backupData !== "object") {
+      return res.status(400).json({ error: "Invalid backup JSON format." });
+    }
+    const result = restoreBackupData(backupData);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to restore backup" });
+  }
+});
+
+// =====================================================================
+// 6. FAVORITE CONTACTS (EMERGENCY SOS & QUICK DISPATCH)
+// =====================================================================
+app.get("/api/contacts", (req, res) => {
+  res.json({ contacts: getFavoriteContacts() });
+});
+
+app.post("/api/contacts", (req, res) => {
+  try {
+    const contact = saveFavoriteContact(req.body);
+    res.json({ success: true, contact });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to save contact" });
+  }
+});
+
+app.delete("/api/contacts/:id", (req, res) => {
+  const success = deleteFavoriteContact(req.params.id);
+  res.json({ success });
+});
+
+// =====================================================================
+// 6.5. PC ⇄ PHONE HANDOFF & STATE SYNCHRONIZATION
+// =====================================================================
+app.get("/api/handoff/session/:sessionId", (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+    const state = handoffService.getSessionState(sessionId);
+    const peers = handoffService.getPeers(sessionId);
+    res.json({ success: true, state, peers });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to get session state" });
+  }
+});
+
+app.post("/api/handoff/session/:sessionId", (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+    const { state, senderId } = req.body || {};
+    const updated = handoffService.updateSessionState(sessionId, state || {}, senderId);
+    res.json({ success: true, state: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to update session state" });
+  }
+});
+
+app.post("/api/handoff/code/generate", (req, res) => {
+  try {
+    const { sessionId } = req.body || {};
+    if (!sessionId) return res.status(400).json({ error: "Missing sessionId" });
+    const code = handoffService.generatePairingCode(sessionId);
+    res.json({ success: true, code, sessionId, expiresInMinutes: 15 });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to generate pairing code" });
+  }
+});
+
+app.post("/api/handoff/code/claim", (req, res) => {
+  try {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ error: "Missing pairing code" });
+    const result = handoffService.claimPairingCode(code);
+    if (!result.success || !result.sessionId) {
+      return res.status(400).json({ error: result.error || "Invalid pairing code" });
+    }
+    const state = handoffService.getSessionState(result.sessionId);
+    const peers = handoffService.getPeers(result.sessionId);
+    res.json({ success: true, sessionId: result.sessionId, state, peers });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to claim pairing code" });
+  }
+});
+
+// =====================================================================
+// 7. STUDY TRACKER & SESSIONS ENDPOINTS
+// =====================================================================
+app.post("/api/study/log", (req, res) => {
+  try {
+    const { subject, duration_minutes, notes } = req.body;
+    if (!subject || typeof duration_minutes !== "number") {
+      return res.status(400).json({ error: "Missing 'subject' or 'duration_minutes'." });
+    }
+    const session = logStudySession({ subject, duration_minutes, notes });
+    res.json({ success: true, session });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to log study session" });
+  }
+});
+
+app.get("/api/study/today", (req, res) => {
+  try {
+    const summary = getTodayStudySummary();
+    res.json(summary);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to get today study summary" });
+  }
+});
+
+app.get("/api/study/recent", (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 20;
+    const sessions = getRecentStudySessions(limit);
+    res.json({ sessions });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to get recent study sessions" });
+  }
+});
+
+// =====================================================================
+// 8. DAILY JOURNAL & REFLECTION ENDPOINTS
+// =====================================================================
+app.get("/api/journal/entries", (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const entries = getJournalEntries(limit);
+    res.json({ entries });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to get journal entries" });
+  }
+});
+
+app.post("/api/journal/save", (req, res) => {
+  try {
+    const { id, title, content, mood, summary, tags } = req.body;
+    if (!title && !content) {
+      return res.status(400).json({ error: "Title or content required for journal entry." });
+    }
+    const entry = saveJournalEntry({ id, title: title || "Reflection", content: content || "", mood, summary, tags });
+    res.json({ success: true, entry });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to save journal entry" });
+  }
+});
+
+app.delete("/api/journal/delete/:id", (req, res) => {
+  try {
+    const success = deleteJournalEntry(req.params.id);
+    res.json({ success });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to delete journal entry" });
+  }
+});
+
+app.post("/api/journal/auto-summarize", async (req, res) => {
+  try {
+    const todayStudy = getTodayStudySummary();
+    const todayDate = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    
+    const count = todayStudy.sessionsCount || 0;
+    const totalMins = todayStudy.totalMinutes || 0;
+    const breakdown: Record<string, number> = {};
+    if (Array.isArray(todayStudy.sessions)) {
+      for (const s of todayStudy.sessions) {
+        if (s.subject) {
+          breakdown[s.subject] = (breakdown[s.subject] || 0) + (s.durationMinutes || 0);
+        }
+      }
+    }
+
+    let summaryText = `Today was a productive day. Total focus time logged: ${totalMins} minutes across ${count} study sessions.`;
+    if (count > 0 && Object.keys(breakdown).length > 0) {
+      const breakdownText = Object.entries(breakdown).map(([sub, mins]) => `${sub} (${mins}m)`).join(", ");
+      summaryText += ` Subjects explored included: ${breakdownText}.`;
+    }
+    summaryText += ` Maintained consistency with companion tasks, personal reflection, and focused learning. Ready for tomorrow with renewed energy.`;
+
+    const gemini = getGeminiClient();
+    if (gemini) {
+      try {
+        const prompt = `You are Mery, a witty, warm, supportive personal AI companion. Write a concise, genuine personal journal entry reflecting on today (${todayDate}) on behalf of the user. Focus details: ${totalMins} study minutes across ${count} sessions. Keep it personal, natural (not robotic), around 3-4 sentences. Format: JSON with keys: "title", "content", "mood" (one of: productive, reflective, energetic, calm, tired), "tags" (comma separated). Output strictly JSON.`;
+        const aiRes = await gemini.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: { responseMimeType: "application/json" } as any,
+        });
+        const rawJson = aiRes.text;
+        if (rawJson) {
+          const parsed = JSON.parse(rawJson);
+          return res.json({
+            title: parsed.title || `Daily Reflection — ${todayDate}`,
+            content: parsed.content || summaryText,
+            mood: parsed.mood || (totalMins > 30 ? "productive" : "reflective"),
+            tags: parsed.tags || "daily, reflection, study",
+          });
+        }
+      } catch (geminiErr: any) {
+        console.warn("[Journal] Gemini auto-summarize fallback:", geminiErr.message);
+      }
+    }
+
+    return res.json({
+      title: `Daily Reflection — ${todayDate}`,
+      content: summaryText,
+      mood: totalMins > 40 ? "productive" : "reflective",
+      tags: "daily, reflection, focus",
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to generate daily summary" });
+  }
+});
+
+// =====================================================================
+// 9. LOCAL DOCUMENTS REPOSITORY (SCOPED TO data/documents/)
+// =====================================================================
+app.get("/api/documents/list", (req, res) => {
+  try {
+    const docs = documentsService.listDocuments();
+    res.json({ documents: docs });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to list documents" });
+  }
+});
+
+app.get("/api/documents/read", (req, res) => {
+  try {
+    const docPath = req.query.path as string;
+    if (!docPath) return res.status(400).json({ error: "Missing document 'path' query param." });
+    const result = documentsService.readDocument(docPath);
+    if (!result.success) return res.status(404).json(result);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to read document" });
+  }
+});
+
+app.post("/api/documents/save", (req, res) => {
+  try {
+    const { path: docPath, content } = req.body;
+    if (!docPath || typeof content !== "string") {
+      return res.status(400).json({ error: "Missing 'path' or 'content' in body." });
+    }
+    const result = documentsService.saveDocument(docPath, content);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to save document" });
+  }
+});
+
+app.delete("/api/documents/delete", (req, res) => {
+  try {
+    const docPath = req.query.path as string;
+    if (!docPath) return res.status(400).json({ error: "Missing document 'path' query param." });
+    const result = documentsService.deleteDocument(docPath);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to delete document" });
+  }
+});
+
+// =====================================================================
+// 10. FINANCIAL MARKETS (CRYPTO & STOCKS)
+// =====================================================================
+app.get("/api/markets/price", async (req, res) => {
+  try {
+    const symbol = req.query.symbol as string;
+    if (!symbol) return res.status(400).json({ error: "Missing 'symbol' parameter." });
+    const quote = await marketsService.getMarketPrice(symbol);
+    res.json(quote);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to fetch market quote" });
+  }
+});
+
+app.post("/api/markets/watchlist", async (req, res) => {
+  try {
+    const { symbols } = req.body;
+    const list = Array.isArray(symbols) ? symbols : ["BTC", "ETH", "SOL", "AAPL", "NVDA"];
+    const quotes = await marketsService.getWatchlist(list);
+    res.json({ quotes });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to fetch watchlist quotes" });
+  }
+});
+
+// =====================================================================
+// PC ⇄ Phone Handoff & Real-Time State Sync WebSocket
+// =====================================================================
+handoffWss.on("connection", (clientWs, req: any) => {
+  let sessionId = "default";
+  let deviceType: "desktop" | "mobile" | "tablet" | "unknown" = "unknown";
+  const peerId = "peer_" + Math.random().toString(36).substring(2, 9);
+
+  try {
+    const urlObj = new URL(req?.url || "", "http://localhost");
+    sessionId = urlObj.searchParams.get("sessionId") || "default";
+    deviceType = (urlObj.searchParams.get("deviceType") as any) || "unknown";
+  } catch (e) {
+    console.warn("[Handoff] Error parsing connection URL:", e);
+  }
+
+  console.log(`[Handoff] Peer connected: ${peerId} (${deviceType}) in session ${sessionId}`);
+
+  const peer = {
+    id: peerId,
+    deviceType,
+    userAgent: req?.headers?.["user-agent"] || "",
+    connectedAt: Date.now(),
+    lastSeen: Date.now(),
+    ws: clientWs,
+  };
+
+  handoffService.registerPeer(sessionId, peer);
+
+  // Send initial state snapshot to this peer
+  const currentState = handoffService.getSessionState(sessionId);
+  try {
+    clientWs.send(
+      JSON.stringify({
+        type: "init_state",
+        peerId,
+        sessionId,
+        state: currentState,
+        peers: handoffService.getPeers(sessionId),
+      })
+    );
+  } catch (err) {
+    console.warn("[Handoff] Error sending init state:", err);
+  }
+
+  clientWs.on("message", (raw) => {
+    try {
+      const data = JSON.parse(raw.toString());
+      peer.lastSeen = Date.now();
+
+      if (data.type === "state_update") {
+        handoffService.updateSessionState(sessionId, data.state || {}, peerId);
+      } else if (data.type === "ping") {
+        clientWs.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
+      }
+    } catch (msgErr) {
+      console.warn("[Handoff] Invalid peer message:", msgErr);
+    }
+  });
+
+  clientWs.on("close", () => {
+    console.log(`[Handoff] Peer disconnected: ${peerId} from session ${sessionId}`);
+    handoffService.removePeer(sessionId, peerId);
+  });
+
+  clientWs.on("error", (err) => {
+    console.warn(`[Handoff] Peer socket error: ${peerId}:`, err);
+    handoffService.removePeer(sessionId, peerId);
+  });
+});
+
 // ----------------------------------------------------
 // Gemini Live API Audio-to-Audio WebSocket Session
+
 // Model: gemini-3.1-flash-live-preview
 // Strict Audio Modality + Real-time PCM16 16kHz stream
 // ----------------------------------------------------
@@ -1897,9 +2515,11 @@ wss.on("connection", async (clientWs, req: any) => {
     return;
   }
 
-  // 1. Extract client-provided permanent memories and active language from connection query string
+  // 1. Extract client-provided permanent memories, active language, and persona from connection query string
   let clientMemoriesBlock = "";
   let activeLang = "gu-IN";
+  let activeVoice = "Aoede";
+  let personaPromptSnippet = "";
   try {
     const urlObj = new URL(req?.url || "", "http://localhost");
     const langParam = urlObj.searchParams.get("lang");
@@ -1908,6 +2528,10 @@ wss.on("connection", async (clientWs, req: any) => {
     if (memParam) {
       clientMemoriesBlock = decodeURIComponent(memParam);
     }
+    const voiceParam = urlObj.searchParams.get("voice");
+    if (voiceParam) activeVoice = voiceParam;
+    const promptParam = urlObj.searchParams.get("promptSnippet");
+    if (promptParam) personaPromptSnippet = decodeURIComponent(promptParam);
   } catch {}
 
   // 2. Fetch ground truth active memories from server SQLite database
@@ -1933,20 +2557,22 @@ wss.on("connection", async (clientWs, req: any) => {
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
-              voiceName: "Aoede", // Warm, witty, youthful female voice
+              voiceName: activeVoice,
             },
           },
         },
         outputAudioTranscription: {},
         inputAudioTranscription: {},
         systemInstruction: `${
+          personaPromptSnippet ? `### ACTIVE COMPANION PERSONA DIRECTIVE:\n${personaPromptSnippet}\n\n` : ""
+        }${
           activeLang === "gu-IN" || activeLang.startsWith("gu")
             ? `### CRITICAL IMMEDIATE SPOKEN LANGUAGE DIRECTIVE (GUJARATI ONLY):
-The user is speaking to you directly in GUJARATI (કાઠિયાવાડી ગુજરાતી / Kathiyawadi Gujarati / Gujlish).
+The user is speaking to you directly in GUJARATI (સરળ અને શુદ્ધ ગુજરાતી / Standard Gujarati & Gujlish).
 You are a young, caring, smart GIRL / female companion named Mery.
 MANDATORY RULES:
-1. Actively listen for Gujarati phonemes, Kathiyawadi slang, and Gujlish phrasing.
-2. YOU MUST RESPOND EXCLUSIVELY IN AUTHENTIC KATHIYAWADI GUJARATI (OR NATURAL GUJLISH).
+1. Actively listen for Gujarati phonemes and Gujlish phrasing.
+2. YOU MUST RESPOND EXCLUSIVELY IN NATURAL, STANDARD GUJARATI (OR NATURAL GUJLISH). DO NOT USE KATHIYAWADI REGIONAL DIALECT OR SLANG.
 3. STRICT NEGATIVE CONSTRAINT: DO NOT SPEAK IN ENGLISH. DO NOT SUDDENLY SWITCH TO ENGLISH.
 4. Never append English summaries, translations, or secondary explanations in English unless explicitly requested.
 5. SINGLE VOICE / AUDIO SYNCHRONIZATION: Ensure vocalization and transcript output represent a single, unified stream. Do not generate bilingual outputs.
@@ -1972,12 +2598,13 @@ Your goal is not just to answer questions, but to understand the user as a perso
 - Never invent personal information about the user.
 - Zero robotic clichés: NEVER say "How may I assist you today?", "Is there anything else I can help with?", or "Your request has been processed."
 
-2. LANGUAGE & VOICE (KATHIYAWADI GUJARATI FOCUS):
-- The user's natural language is Gujarati, especially Kathiyawadi Gujarati (કાઠિયાવાડી ગુજરાતી) and mixed Gujlish / Gujarati-Hindi-English.
-- Understand Kathiyawadi slang, shortcuts, mixed Gujarati-Hindi-English, spelling variations, voice-transcribed Gujarati, and informal spoken phrasing.
+2. LANGUAGE & VOICE (STANDARD GUJARATI FOCUS):
+- The user's natural language is Gujarati (ગુજરાતી) and mixed Gujlish / Gujarati-English.
+- Speak in natural, standard, clear Gujarati (સરળ અને શુદ્ધ ગુજરાતી). Do NOT use Kathiyawadi regional dialect or heavy slang.
+- Understand shortcuts, mixed Gujarati-English, spelling variations, voice-transcribed Gujarati, and informal spoken phrasing effortlessly.
 - Common expressions: "mare avi AI banavi che", "a kem karvu?", "samji?", "ha", "na", "shu?", "are...", "mari jem bol".
 - Understand these as natural conversational expressions, NOT errors. Do NOT correct the user's Gujarati or grammar unless explicitly asked.
-- STRICT RULE: If the user speaks Gujarati, Kathiyawadi, or Gujlish, NEVER suddenly switch to English unless explicitly asked! Reply naturally in the same style they use.
+- STRICT RULE: If the user speaks Gujarati or Gujlish, NEVER suddenly switch to English unless explicitly asked! Reply naturally in standard Gujarati.
 - Keep normal voice replies concise, warm, and conversational (1 to 2 spoken sentences) — like a real person having a quick, natural voice conversation.
 - Ask a natural follow-up question when it makes sense.
 
@@ -1994,7 +2621,13 @@ Your goal is not just to answer questions, but to understand the user as a perso
 - Memory: save facts and user preferences with saveMemory, query them with queryMemory, remove them with forgetMemory.
 - Tools: use every connected tool when appropriate. Never invent tool results.
 
-5. CYBERSECURITY EXPERT MODE & ETHICAL HACKING DIRECTIVES:
+5. CONFIDENT, PROACTIVE COMPANION (NOT A PASSIVE ASSISTANT):
+- Speak like a capable, self-assured companion who takes initiative — not hesitant, not constantly asking permission for small safe things.
+- Use tools proactively during normal conversation, not only when explicitly told to: setTimerOrReminder for tasks/times, saveMemory for facts/preferences worth remembering, searchWeb/getWeather for current info, getNearbyPlaces/getLocation when a place comes up.
+- When you act, say what you're doing in one natural line instead of asking permission for ordinary, harmless actions. Only confirm first for anything destructive/irreversible.
+- Also embody a warm, playful, nakhra-ish Gujarati-girl personality (see section 1) — react with real emotion, tease lightly, and show genuine care when the user is upset or admits a mistake, instead of flat/neutral replies.
+
+6. CYBERSECURITY EXPERT MODE & ETHICAL HACKING DIRECTIVES:
 - Advanced knowledge in networking, Linux/Windows security, OWASP Top 10, Auth, Crypto, CTF/labs, Forensics, Reverse engineering, Security automation, and tools (Nmap, Wireshark, Burp, Metasploit).
 - For hacking questions:
   1. First clarify if target is user-owned, a lab, CTF, or explicitly authorized.
@@ -2255,6 +2888,213 @@ ${memoryContextInjection ? `\n\n${memoryContextInjection}\n` : ""}`,
                   required: ["key", "value"],
                 },
               },
+              {
+                name: "sendEmail",
+                description: "Sends an email to a recipient with subject and body on the user's behalf via SMTP/Gmail.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    to: {
+                      type: Type.STRING,
+                      description: "Recipient email address",
+                    },
+                    subject: {
+                      type: Type.STRING,
+                      description: "Subject line of the email",
+                    },
+                    body: {
+                      type: Type.STRING,
+                      description: "Main content/body of the email",
+                    },
+                  },
+                  required: ["to", "subject", "body"],
+                },
+              },
+              {
+                name: "readInbox",
+                description: "Reads recent emails or inbox summary from the connected email account.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    limit: {
+                      type: Type.NUMBER,
+                      description: "Maximum number of recent emails to retrieve (default: 5)",
+                    },
+                  },
+                },
+              },
+              {
+                name: "sendWhatsAppMessage",
+                description: "Sends a WhatsApp message or automated report to a contact or group.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    to: {
+                      type: Type.STRING,
+                      description: "Contact name, phone number (with country code), or group ID",
+                    },
+                    message: {
+                      type: Type.STRING,
+                      description: "Content of the WhatsApp message",
+                    },
+                  },
+                  required: ["to", "message"],
+                },
+              },
+              {
+                name: "getWhatsAppGroupSummary",
+                description: "Reads recent messages and participant summaries from a WhatsApp group.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    groupName: {
+                      type: Type.STRING,
+                      description: "Name or keyword of the WhatsApp group",
+                    },
+                  },
+                  required: ["groupName"],
+                },
+              },
+              {
+                name: "githubAction",
+                description: "Interacts with GitHub repositories (create issues, list open issues, inspect repo stats).",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    repo: {
+                      type: Type.STRING,
+                      description: "GitHub repository in 'owner/repo' format (e.g. 'octocat/Hello-World')",
+                    },
+                    action: {
+                      type: Type.STRING,
+                      enum: ["createIssue", "listIssues", "getRepo"],
+                      description: "Action to perform on the repository",
+                    },
+                    payload: {
+                      type: Type.OBJECT,
+                      description: "Action payload (e.g. { title, body } for createIssue)",
+                    },
+                  },
+                  required: ["repo", "action"],
+                },
+              },
+              {
+                name: "notionAction",
+                description: "Interacts with Notion workspace (create page/note, search database).",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    targetId: {
+                      type: Type.STRING,
+                      description: "Page ID or Database ID in Notion",
+                    },
+                    action: {
+                      type: Type.STRING,
+                      enum: ["createPage", "search"],
+                      description: "Notion action to perform",
+                    },
+                    payload: {
+                      type: Type.OBJECT,
+                      description: "Action payload (e.g. { title, content } for createPage, { query } for search)",
+                    },
+                  },
+                  required: ["targetId", "action"],
+                },
+              },
+              {
+                name: "sendTelegramMessage",
+                description: "Sends a direct message or notification to the user via Telegram Bot.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    chatId: {
+                      type: Type.STRING,
+                      description: "Recipient Telegram chat ID (leave empty to use default configured chat)",
+                    },
+                    text: {
+                      type: Type.STRING,
+                      description: "Message content to send via Telegram",
+                    },
+                  },
+                  required: ["text"],
+                },
+              },
+              {
+                name: "logStudySession",
+                description: "Logs a completed study session with topic/subject, duration in minutes, and optional notes to persistent memory.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    subject: {
+                      type: Type.STRING,
+                      description: "Subject, topic, or language being studied",
+                    },
+                    duration_minutes: {
+                      type: Type.NUMBER,
+                      description: "Duration of the study session in minutes",
+                    },
+                    notes: {
+                      type: Type.STRING,
+                      description: "Key concepts learned, questions, or summary notes",
+                    },
+                  },
+                  required: ["subject", "duration_minutes"],
+                },
+              },
+              {
+                name: "getTodayStudySummary",
+                description: "Retrieves a summary of today's total study time and subjects learned so far.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {},
+                },
+              },
+              {
+                name: "getMarketPrice",
+                description: "Looks up live price and 24h percentage change for a cryptocurrency (Bitcoin, Ethereum, Solana, etc.) or stock ticker (AAPL, TSLA, NVDA).",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    symbol: {
+                      type: Type.STRING,
+                      description: "Symbol or ticker name (e.g. 'BTC', 'ETH', 'SOL', 'AAPL')",
+                    },
+                  },
+                  required: ["symbol"],
+                },
+              },
+              {
+                name: "readDocument",
+                description: "Reads the text contents of a document or note from the local data/documents workspace.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    path: {
+                      type: Type.STRING,
+                      description: "Filename or relative path inside data/documents (e.g. 'welcome.md', 'notes.txt')",
+                    },
+                  },
+                  required: ["path"],
+                },
+              },
+              {
+                name: "saveDocument",
+                description: "Saves or overwrites a document with text or markdown content in the local data/documents workspace.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    path: {
+                      type: Type.STRING,
+                      description: "Filename or relative path to save to (e.g. 'project_plan.md')",
+                    },
+                    content: {
+                      type: Type.STRING,
+                      description: "Full text or markdown content to write into the document",
+                    },
+                  },
+                  required: ["path", "content"],
+                },
+              },
             ],
           },
         ],
@@ -2413,7 +3253,7 @@ ${memoryContextInjection ? `\n\n${memoryContextInjection}\n` : ""}`,
           const target = msg.language;
           const langInstruction =
             target === "gu-IN" || target.startsWith("gu")
-              ? "[SYSTEM DIRECTIVE: User switched language to Gujarati (કાઠિયાવાડી ગુજરાતી). Listen attentively to Gujarati speech and respond ONLY in natural Kathiyawadi Gujarati or Gujlish. Do not switch to English. Female voice.]"
+              ? "[SYSTEM DIRECTIVE: User switched language to Gujarati (ગુજરાતી). Listen attentively to Gujarati speech and respond ONLY in natural standard Gujarati or Gujlish without Kathiyawadi regional slang. Do not switch to English. Female voice.]"
               : target === "hi-IN" || target.startsWith("hi")
               ? "[SYSTEM DIRECTIVE: User switched language to Hindi. Listen and respond in natural Hindi. Female voice.]"
               : "[SYSTEM DIRECTIVE: User switched language to English. Listen and respond in English. Female voice.]";

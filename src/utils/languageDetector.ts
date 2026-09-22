@@ -13,7 +13,7 @@ const GUJARATI_SCRIPT_REGEX = /[\u0A80-\u0AFF]/;
 // 2. Hindi / Devanagari Script: Unicode block U+0900 to U+097F
 const DEVANAGARI_SCRIPT_REGEX = /[\u0900-\u097F]/;
 
-// 3. Distinctive Romanized Gujarati (Gujlish & Kathiyawadi) vocabulary markers
+// 3. Distinctive Romanized Gujarati (Gujlish) vocabulary markers
 const GUJARATI_PHONETIC_WORDS = new Set([
   'kem', 'cho', 'chho', 'chhe', 'che', 'majama', 'maza', 'maja',
   'tamaru', 'tamne', 'tame', 'tamaro', 'tamari',
@@ -30,7 +30,7 @@ const GUJARATI_PHONETIC_WORDS = new Set([
   'samjyo', 'samji', 'samjayo', 'gamtu', 'game', 'jevu', 'tevu',
   'ketla', 'ketli', 'ketlu', 'kevi', 'kevo', 'kevu', 'ha', 'na',
   'aavo', 'beso', 'khabar', 'potano', 'potani',
-  // Kathiyawadi & colloquial idioms
+  // Colloquial & conversational Gujarati idioms
   'mare', 'avi', 'aavi', 'banavi', 'karvu', 'jem', 'are', 'bapa', 'bhura',
   'hal', 'hale', 'hali', 'le', 'tara', 'mara', 'ghano', 'ghani', 'ghana',
   'vahla', 'vahli', 'vhalo', 'motabhai', 'hachu', 'khotu', 'rakh', 'bes',
@@ -123,13 +123,13 @@ export function detectSpokenLanguage(
     };
   }
 
-  // Check multi-word Gujarati & Kathiyawadi phrases
+  // Check multi-word Gujarati phrases
   const lowerTrimmed = trimmed.toLowerCase();
   const gujaratiPhraseMarkers = [
     'kem cho', 'kem chho', 'maja ma', 'majama', 'su kare che', 'shu kare che',
     'tamaru naam', 'maru naam', 'su plan che', 'shu plan che', 'weather kem che',
     'havaamaan kevu che', 'aaje su che', 'kaley meeting', 'aavo tame',
-    // Kathiyawadi conversational patterns
+    // Spoken conversational patterns
     'mare avi', 'banavi che', 'kem karvu', 'mari jem', 'samji', 'a kem',
     'kai vandho nai', 'shu che', 'su che', 'hal hal', 'chal hal', 'hali ja',
     'shu vaat che', 'kashu nathi', 'badhu barabar', 'mare joiye', 'have bol',

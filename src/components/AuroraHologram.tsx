@@ -8,6 +8,9 @@ interface AuroraHologramProps {
   emotion: EmotionType;
   onClickPrompt?: () => void;
   isAudioPlaying?: boolean;
+  isImmersive?: boolean;
+  accentColor?: string;
+  companionName?: string;
 }
 
 export const AuroraHologram: React.FC<AuroraHologramProps> = ({
@@ -15,6 +18,9 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
   emotion,
   onClickPrompt,
   isAudioPlaying = false,
+  isImmersive = false,
+  accentColor,
+  companionName = 'MERY',
 }) => {
   const [waveHeights, setWaveHeights] = useState<number[]>([12, 24, 18, 32, 28, 40, 26, 18, 30, 16, 22, 14]);
 
@@ -99,16 +105,20 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
     >
       {/* Background ambient radial blur */}
       <div
-        className="absolute w-72 h-72 rounded-full pointer-events-none transition-all duration-1000 ease-out"
+        className={`absolute rounded-full pointer-events-none transition-all duration-1000 ease-out ${
+          isImmersive ? 'w-96 h-96 sm:w-[480px] sm:h-[480px]' : 'w-72 h-72'
+        }`}
         style={{
-          background: `radial-gradient(circle, ${colors.glow} 0%, rgba(0, 163, 255, 0.15) 45%, transparent 70%)`,
-          filter: 'blur(35px)',
+          background: `radial-gradient(circle, ${colors.glow} 0%, rgba(0, 163, 255, 0.18) 45%, transparent 70%)`,
+          filter: isImmersive ? 'blur(45px)' : 'blur(35px)',
           transform: state === 'speaking' ? 'scale(1.25)' : state === 'listening' ? 'scale(1.15)' : 'scale(1)',
         }}
       />
 
       {/* Hologram Ring HUD Matrix */}
-      <div className="relative w-56 h-56 flex items-center justify-center">
+      <div className={`relative flex items-center justify-center transition-all ${
+        isImmersive ? 'w-72 h-72 sm:w-88 sm:h-88' : 'w-56 h-56'
+      }`}>
         {/* Outer orbital dotted ring */}
         <div
           className="absolute inset-0 rounded-full border border-dashed animate-orbit-slow"
@@ -147,11 +157,13 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
             repeat: Infinity,
             ease: 'easeInOut',
           }}
-          className="relative w-28 h-28 rounded-full flex items-center justify-center shadow-2xl transition-all duration-700"
+          className={`relative rounded-full flex items-center justify-center shadow-2xl transition-all duration-700 ${
+            isImmersive ? 'w-36 h-36 sm:w-44 sm:h-44' : 'w-28 h-28'
+          }`}
           style={{
             background: `radial-gradient(circle at 35% 35%, #FFFFFF 0%, ${colors.core} 35%, #051937 85%, #020204 100%)`,
-            boxShadow: `0 0 35px ${colors.glow}, inset 0 0 20px rgba(255, 255, 255, 0.4), inset 0 0 35px ${colors.accent}`,
-            border: `1.5px solid rgba(0, 163, 255, 0.4)`,
+            boxShadow: `0 0 45px ${colors.glow}, inset 0 0 24px rgba(255, 255, 255, 0.45), inset 0 0 40px ${colors.accent}`,
+            border: `1.5px solid rgba(0, 163, 255, 0.45)`,
           }}
         >
           {/* Inner pulsating core sheen */}
@@ -165,7 +177,7 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
               repeat: Infinity,
               ease: 'easeInOut',
             }}
-            className="w-14 h-14 rounded-full"
+            className={`rounded-full ${isImmersive ? 'w-20 h-20 sm:w-24 sm:h-24' : 'w-14 h-14'}`}
             style={{
               background: `radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, ${colors.accent} 50%, transparent 80%)`,
               filter: 'blur(3px)',
@@ -175,13 +187,13 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
           {/* Core Sparkle / Icon indicator */}
           <div className="absolute inset-0 flex items-center justify-center text-white/90">
             {state === 'thinking' ? (
-              <Activity className="w-6 h-6 animate-spin text-[#38BDF8]" />
+              <Activity className={`${isImmersive ? 'w-8 h-8' : 'w-6 h-6'} animate-spin text-[#38BDF8]`} />
             ) : state === 'listening' ? (
-              <Radio className="w-6 h-6 animate-pulse text-[#00A3FF]" />
+              <Radio className={`${isImmersive ? 'w-8 h-8' : 'w-6 h-6'} animate-pulse text-[#00A3FF]`} />
             ) : state === 'speaking' || isAudioPlaying ? (
-              <Volume2 className="w-6 h-6 animate-pulse text-[#38BDF8]" />
+              <Volume2 className={`${isImmersive ? 'w-8 h-8' : 'w-6 h-6'} animate-pulse text-[#38BDF8]`} />
             ) : (
-              <Sparkles className="w-6 h-6 text-white/80 group-hover:scale-110 transition-transform" />
+              <Sparkles className={`${isImmersive ? 'w-8 h-8' : 'w-6 h-6'} text-white/80 group-hover:scale-110 transition-transform`} />
             )}
           </div>
         </motion.div>
@@ -237,7 +249,7 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
       <div className="mt-3 flex items-center gap-2">
         <span className="w-2 h-2 rounded-full bg-[#00A3FF] animate-ping" />
         <span className="font-telemetry text-xs tracking-wider text-[#38BDF8] uppercase">
-          MERY // {colors.label}
+          {companionName.toUpperCase()} // {colors.label}
         </span>
         <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#00A3FF]/20 text-[#38BDF8] border border-[#00A3FF]/30 font-telemetry">
           {state.toUpperCase()}
@@ -245,7 +257,7 @@ export const AuroraHologram: React.FC<AuroraHologramProps> = ({
       </div>
 
       <p className="text-[11px] text-[#38BDF8]/60 mt-1 font-light tracking-wide text-center">
-        Tap the core to check in with MERY
+        {isImmersive ? 'Tap the holographic core to speak or interrupt' : `Tap the core to check in with ${companionName}`}
       </p>
     </div>
   );

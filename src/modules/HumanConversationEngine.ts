@@ -8,7 +8,7 @@ import {
 } from '../types';
 import { stateManager } from './StateManager';
 
-// Linguistic patterns for incomplete thoughts (English & Gujarati / Kathiyawadi)
+// Linguistic patterns for incomplete thoughts (English & Gujarati)
 const TRAILING_CONJUNCTIONS = [
   'and',
   'but',
@@ -29,7 +29,7 @@ const TRAILING_CONJUNCTIONS = [
   'then',
   'though',
   'cause',
-  // Gujarati & Kathiyawadi conjunctions & continuation connectors
+  // Gujarati conjunctions & continuation connectors
   'ane',
   'pan',
   'etle',
@@ -79,7 +79,7 @@ const HESITATION_MARKERS = [
   'so basically',
   'kinda',
   'sort of',
-  // Gujarati & Kathiyawadi hesitation markers
+  // Gujarati hesitation markers
   'are',
   'are...',
   'jo ne',
@@ -109,7 +109,7 @@ const QUESTION_STARTERS = [
   'should i',
   'should we',
   'mery',
-  // Gujarati & Kathiyawadi question starters
+  // Gujarati question starters
   'shu',
   'su',
   'kem',
@@ -271,7 +271,7 @@ export class HumanConversationEngine {
     const clean = text.trim().toLowerCase();
     const words = clean.split(/\s+/).filter(Boolean);
 
-    // Filter out accidental noise, clicks, or short murmurs, while preserving meaningful short words in English, Gujarati & Kathiyawadi
+    // Filter out accidental noise, clicks, or short murmurs, while preserving meaningful short words in English & Gujarati
     const meaningfulShortWords = new Set([
       'hi', 'no', 'ok', 'ha', 'na', 'hu', 'jo', 'ho', 'ya', 'ye', 'su', 'le', 'are', 'aa', 'ae', 'te', 'to', 'ne', 'chhe', 'che',
       'હા', 'ના', 'શું', 'કેમ', 'છો', 'હું', 'આ', 'તે', 'જો', 'લે', 'હો', 'ને', 'તો', 'છે', 'વાહ', 'અરે', 'હાં', 'બોલો'
@@ -348,6 +348,9 @@ export class HumanConversationEngine {
       recommendedPauseMs = Math.max(800, recommendedPauseMs - 300); // Crisp question expects responsive reply
     } else if (isSelfTalk) {
       recommendedPauseMs += 800;
+    } else if (words.length <= 3 && !isIncomplete) {
+      // Crisp short conversational greetings or interjections (e.g. "Kem cho?", "Hello", "હા", "શું?")
+      recommendedPauseMs = Math.min(recommendedPauseMs, 900);
     }
 
     return {

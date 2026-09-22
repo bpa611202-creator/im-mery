@@ -46,7 +46,7 @@ export const AvatarControlsModal: React.FC<AvatarControlsModalProps> = ({
 
   const emotions: { id: EmotionType; label: string; icon: any; desc: string }[] = [
     { id: 'warm', label: 'Warm & Caring', icon: Heart, desc: 'Friendly, empathetic & close' },
-    { id: 'playful', label: 'Playful & Witty', icon: Sparkles, desc: 'Fun Kathiyawadi energy' },
+    { id: 'playful', label: 'Playful & Witty', icon: Sparkles, desc: 'Fun & lively energy' },
     { id: 'curious', label: 'Curious & Inquisitive', icon: Compass, desc: 'Eager to discover & learn' },
     { id: 'thoughtful', label: 'Focused & Analytical', icon: Brain, desc: 'Deep reasoning & cybersecurity' },
   ];

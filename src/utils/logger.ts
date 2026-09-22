@@ -68,9 +68,15 @@ class SystemLogger {
   }
 
   private sanitize(obj: Record<string, any>): Record<string, any> {
+    if (!obj || typeof obj !== 'object') {
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map((item) => (typeof item === 'object' && item !== null ? this.sanitize(item) : item)) as any;
+    }
     const safe: Record<string, any> = {};
     for (const [key, value] of Object.entries(obj)) {
-      const lowerKey = key.toLowerCase();
+      const lowerKey = String(key).toLowerCase();
       if (
         lowerKey.includes('key') ||
         lowerKey.includes('secret') ||

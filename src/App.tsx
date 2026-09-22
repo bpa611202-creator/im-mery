@@ -4,14 +4,21 @@ import { ToolNexusDrawer } from './components/ToolNexusDrawer';
 import { TranscriptDrawer } from './components/TranscriptDrawer';
 import { MemoryDashboard } from './components/MemoryDashboard';
 import { MeryIdentityModal } from './components/MeryIdentityModal';
+import { VoiceSelectionModal } from './components/VoiceSelectionModal';
 import { SystemControlDashboard } from './components/SystemControlDashboard';
 import { ActivityAwarenessPanel } from './components/ActivityAwarenessPanel';
 import { EmotionRadarModal } from './components/EmotionRadarModal';
 import { SafetyConfirmModal } from './components/SafetyConfirmModal';
 import { ApiManagementModal } from './components/ApiManagementModal';
+import { UnifiedSettingsModal } from './components/UnifiedSettingsModal';
+import { SkillStoreModal } from './components/SkillStoreModal';
+import { IncomingCallBanner } from './components/IncomingCallBanner';
 import { MissingKeyModal } from './components/MissingKeyModal';
 import { ScreenAllowModal } from './components/ScreenAllowModal';
 import { AgentDevStudioModal } from './components/AgentDevStudioModal';
+import { JournalPanel } from './components/JournalPanel';
+import { DocumentsPanel } from './components/DocumentsPanel';
+import { WhiteboardModal } from './components/WhiteboardModal';
 import { AnimeAvatar3D } from './components/AnimeAvatar3D';
 import { liveSession } from './modules/LiveSession';
 import { voiceService } from './utils/audio';
@@ -23,11 +30,17 @@ import { providerManager } from './utils/providerManager';
 import { logger } from './utils/logger';
 import { toolManager } from './modules/ToolManager';
 import { stateManager } from './modules/StateManager';
+import { safetyManager } from './modules/SafetyManager';
+import { telephonyBridge } from './modules/TelephonyBridge';
+import { skillManager } from './modules/skills/SkillManager';
 import { screenShareService } from './modules/ScreenShareService';
 import { memoryService } from './memory/MemoryService';
 import { memoryManager } from './modules/MemoryManager';
 import { cameraService } from './modules/CameraService';
 import { locationService } from './utils/locationService';
+import { showSystemNotification } from './utils/notificationHelper';
+import { handoffManager } from './modules/HandoffManager';
+import { personaManager } from './modules/PersonaManager';
 import { detectSpokenLanguage } from './utils/languageDetector';
 import {
   ChatMessage,
@@ -100,20 +113,34 @@ export default function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [voiceMuted, setVoiceMuted] = useState(false);
   const [fullDuplexActive, setFullDuplexActive] = useState(false);
-  const [wakeWordMode, setWakeWordMode] = useState(false);
-  const [isWokenUp, setIsWokenUp] = useState(true);
+  // Wake-word mode is permanently locked to false — Mery always listens and replies directly
+  const wakeWordMode = false;
+  const setWakeWordMode = (_v: boolean) => {};
+  const isWokenUp = true;
+  const setIsWokenUp = (_v: boolean) => {};
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
 
   // Modals & Panels
   const [isToolNexusOpen, setIsToolNexusOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: string } | null>(null);
+
+  const showToast = (message: string, type: 'info' | 'success' | 'error' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false);
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
+  const [isVoiceSelectionOpen, setIsVoiceSelectionOpen] = useState(false);
   const [isIdentityOpen, setIsIdentityOpen] = useState(false);
   const [isSystemControlOpen, setIsSystemControlOpen] = useState(false);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [isEmotionOpen, setIsEmotionOpen] = useState(false);
   const [isApiSettingsOpen, setIsApiSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'integrations' | 'personas' | 'productivity' | 'skills' | 'safety' | 'voice' | 'memory' | 'backup' | 'providers' | 'telephony'>('integrations');
+  const [isJournalOpen, setIsJournalOpen] = useState(false);
+  const [isDocumentsOpen, setIsDocumentsOpen] = useState(false);
+  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
+  const [isSkillStoreOpen, setIsSkillStoreOpen] = useState(false);
   const [missingKeyProtocol, setMissingKeyProtocol] = useState<MissingKeyProtocol | null>(null);
   const [safetyRequest, setSafetyRequest] = useState<SafetyActionRequest | null>(null);
   const [isScreenAllowOpen, setIsScreenAllowOpen] = useState(false);
@@ -129,6 +156,35 @@ export default function App() {
     }
   });
 
+  // Immersive Phone-Call Mode (Hologram Orb Only, hides chat bar & UI elements)
+  const [immersiveCallMode, setImmersiveCallMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('mery_immersive_call_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleImmersiveCallMode = (enabled: boolean) => {
+    setImmersiveCallMode(enabled);
+    try {
+      localStorage.setItem('mery_immersive_call_mode', String(enabled));
+      window.dispatchEvent(
+        new CustomEvent('mery-immersive-call-mode-change', { detail: { enabled } })
+      );
+    } catch {}
+  };
+
+  useEffect(() => {
+    const handleImmersiveModeChange = (e: any) => {
+      if (typeof e.detail?.enabled === 'boolean') {
+        setImmersiveCallMode(e.detail.enabled);
+      }
+    };
+    window.addEventListener('mery-immersive-call-mode-change', handleImmersiveModeChange);
+    return () => window.removeEventListener('mery-immersive-call-mode-change', handleImmersiveModeChange);
+  }, []);
+
   const fullDuplexRef = useRef(fullDuplexActive);
   fullDuplexRef.current = fullDuplexActive;
 
@@ -140,6 +196,19 @@ export default function App() {
 
   const isThinkingRef = useRef(isThinking);
   isThinkingRef.current = isThinking;
+
+  // Permanently disable wake-word mode & purge any legacy stored settings
+  useEffect(() => {
+    try {
+      localStorage.removeItem('mery_wake_word_mode');
+      localStorage.removeItem('mery_wakeword');
+      localStorage.removeItem('wakeWordMode');
+      localStorage.removeItem('hey_mery_enabled');
+      localStorage.removeItem('heyMeryEnabled');
+    } catch {}
+    voiceService.setWokenUp(true);
+    voiceService.updateFullDuplexConfig({ wakeWordEnabled: false });
+  }, []);
 
   // Sync toolManager safety handler with confirmation modal
   useEffect(() => {
@@ -179,6 +248,65 @@ export default function App() {
       setScreenAllowReason(reason || null);
       setIsScreenAllowOpen(true);
     });
+  }, []);
+
+  // 12. PC ⇄ Phone Handoff & Real-time State Synchronization
+  useEffect(() => {
+    handoffManager.connect();
+    const unsub = handoffManager.onStateChange((syncedState) => {
+      if (syncedState.messages && Array.isArray(syncedState.messages) && syncedState.messages.length > 0) {
+        setMessages((prev) => {
+          if (syncedState.messages!.length > prev.length) {
+            return syncedState.messages as ChatMessage[];
+          }
+          return prev;
+        });
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (messages.length > 1) {
+      const timer = setTimeout(() => {
+        handoffManager.pushState({
+          messages,
+          activePersonaId: personaManager.getActivePersona()?.id || 'mery-default',
+          dominantEmotion: currentEmotion,
+        });
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [messages, currentEmotion]);
+
+  // Support pasting screenshots anywhere in app (Ctrl+V) as a seamless fallback to getDisplayMedia
+  useEffect(() => {
+    const handleWindowPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      // If user is pasting plain text into an active text input or textarea, let default happen
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          e.preventDefault();
+          const file = items[i].getAsFile();
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const base64 = (reader.result as string).replace(/^data:image\/[a-z]+;base64,/, '');
+              screenShareService.uploadStaticImage(base64);
+              stateManager.notify('📸 Screenshot pasted & synced to MERY vision context', 'success');
+            };
+            reader.readAsDataURL(file);
+          }
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleWindowPaste);
+    return () => window.removeEventListener('paste', handleWindowPaste);
   }, []);
 
   // Sync safety handler with system controller
@@ -294,19 +422,40 @@ export default function App() {
   }, [voiceMuted]);
 
   // Start Full Duplex Voice Engine
-  const startFullDuplexEngine = () => {
+  const startFullDuplexEngine = async () => {
+    // Proactively verify & request microphone permissions so browser prompt appears cleanly
+    const perm = await voiceService.ensureMicrophonePermission();
+    if (!perm.granted && perm.error === 'not-allowed') {
+      showToast('Microphone access denied. Please click the lock or site settings icon in your browser to allow microphone access.', 'error');
+      setFullDuplexActive(false);
+      stateManager.setState('disconnected');
+      setHologramState('idle');
+      return;
+    }
+
     setFullDuplexActive(true);
-    setIsWokenUp(!wakeWordRef.current);
+    setIsWokenUp(true);
+    voiceService.setWokenUp(true);
     voiceService.playAcousticChime('listen_start');
 
     const started = voiceService.startFullDuplex({
-      wakeWordEnabled: wakeWordRef.current,
+      wakeWordEnabled: false,
       onInterimSpeech: (transcript) => {
         setUserLiveTranscript(transcript);
         setHologramState('listening');
       },
       onSpeechComplete: (finalText, analysis) => {
         setUserLiveTranscript(finalText);
+
+        // 1. Check if user is responding to an incoming telephony call
+        if (telephonyBridge.checkVoiceCallResponse(finalText)) {
+          return;
+        }
+
+        // 2. Check for emergency trigger
+        if (safetyManager.checkForEmergencyTrigger(finalText)) {
+          // Emergency SOS alert dispatched
+        }
 
         // Language detection & authoritative state synchronization
         const detected = detectSpokenLanguage(finalText, stateManager.getLanguage());
@@ -348,6 +497,7 @@ export default function App() {
       },
       onBargeIn: () => {
         // User interrupted MERY while she was speaking!
+        voiceService.stopAudio();
         setPlayingMessageId(null);
         setHologramState('listening');
       },
@@ -373,7 +523,9 @@ export default function App() {
       onError: (err) => {
         console.warn('Speech engine advisory:', err);
         if (err === 'not-allowed' || err === 'service-not-allowed') {
+          showToast('Microphone access was denied. Please allow microphone permissions in your browser.', 'error');
           setFullDuplexActive(false);
+          stateManager.setState('disconnected');
           setHologramState('idle');
         }
       },
@@ -381,12 +533,15 @@ export default function App() {
 
     if (!started) {
       setFullDuplexActive(false);
+      showToast('Speech recognition could not be started on this device.', 'error');
     }
   };
 
   const stopFullDuplexEngine = () => {
     voiceService.stopFullDuplex();
     setFullDuplexActive(false);
+    stateManager.setState('disconnected');
+    stateManager.setAIStatus('IDLE');
     setHologramState('idle');
     setPlayingMessageId(null);
     voiceService.playAcousticChime('listen_stop');
@@ -401,12 +556,9 @@ export default function App() {
   };
 
   const handleToggleWakeWordMode = () => {
-    const nextMode = !wakeWordMode;
-    setWakeWordMode(nextMode);
-    wakeWordRef.current = nextMode;
-    setIsWokenUp(!nextMode);
-    voiceService.updateFullDuplexConfig({ wakeWordEnabled: nextMode });
-    voiceService.setWokenUp(!nextMode);
+    // Wake word is permanently disabled - Mery always listens directly
+    voiceService.updateFullDuplexConfig({ wakeWordEnabled: false });
+    voiceService.setWokenUp(true);
   };
 
   // One-time gesture listener to activate full-duplex immediately on first page interaction
@@ -424,6 +576,13 @@ export default function App() {
       window.removeEventListener('click', handleFirstGesture);
       window.removeEventListener('touchstart', handleFirstGesture);
     };
+  }, []);
+
+  // Listen for the "Change Voice" button dispatched from ToolsSheet
+  useEffect(() => {
+    const handleOpenVoiceSelection = () => setIsVoiceSelectionOpen(true);
+    window.addEventListener('open-voice-selection', handleOpenVoiceSelection);
+    return () => window.removeEventListener('open-voice-selection', handleOpenVoiceSelection);
   }, []);
 
   // Interrupt Speech
@@ -574,54 +733,22 @@ export default function App() {
   const handleStartVoiceSession = async () => {
     // 0. Audio Cleanup: Stop any lingering audio or speech before starting
     liveSession.stopAllAudio();
-    liveSession.setGreetingActive(true);
+    voiceService.stopAudio();
 
-    // 1. Establish connection to Gemini Live session link
+    // 1. Try the cloud Live API first; fall back to the Browser Full-Duplex
+    // Engine only if it's unavailable. Note: Live API speaks with its own
+    // cloud voice ("Aoede"), different from the browser engine's pinned voice.
     const connected = await liveSession.connect();
     if (!connected) {
-      console.warn('[Voice Session] Live API session offline, starting Browser Full-Duplex Engine...');
-      startFullDuplexEngine();
+      console.log('[Voice Session] Live API unavailable, starting Browser Full-Duplex Engine.');
+      await startFullDuplexEngine();
     }
 
-    // 2. Select authentic voice greeting based on active language
-    const lang = stateManager.getLanguage();
-    const isGujarati = lang === 'gu-IN';
-    const greetingText = isGujarati
-      ? "હું મેરી છું. સિસ્ટમ ઓનલાઇન છે અને હું સાંભળી રહી છું. આજે આપણો શું પ્લાન છે?"
-      : "I'm MERY. Systems online and listening. What's on our agenda today?";
-
-    // 3. Update hologram, subtitle, and live transcripts in real-time
-    stateManager.setState('speaking');
-    setHologramState('speaking');
-    setMerySpokenSubtitle(greetingText);
-    liveSession.dispatchTranscript(greetingText, 'model');
-
-    const greetingMsg: ChatMessage = {
-      id: `msg_greeting_${Date.now()}`,
-      role: 'model',
-      content: greetingText,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-    setMessages((prev) => [...prev, greetingMsg]);
-
-    // 4. Vocalize introduction with warm, friendly female demeanor
-    voiceService.speakBrowserVoice(
-      greetingText,
-      () => {
-        // Hologram & state react to speaking
-        stateManager.setState('speaking');
-        setHologramState('speaking');
-      },
-      () => {
-        // Finished greeting speech
-        liveSession.setGreetingActive(false);
-        // Smoothly transition to listening with acoustic chime
-        voiceService.playAcousticChime('listen_start');
-        stateManager.setState('listening');
-        setHologramState('listening');
-      },
-      { pitch: 1.0, rate: 1.0 }
-    );
+    // 2. No spoken "I'm Mery..." greeting anymore - go straight to listening,
+    // with just a short chime as the audible/visual cue that MERY is ready.
+    voiceService.playAcousticChime('listen_start');
+    stateManager.setState('listening');
+    setHologramState('listening');
   };
 
   // Execute system action dispatched by MERY
@@ -726,19 +853,43 @@ export default function App() {
         cameraService.captureSingleFrame();
         stateManager.notify('Visual snapshot captured', 'info');
         break;
-      case 'SEND_NOTIFICATION':
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification(payload?.title || 'MERY', { body: payload?.body || '' });
-        } else {
-          stateManager.notify(`${payload?.title || 'MERY'}: ${payload?.body || ''}`, 'info');
-        }
+      case 'SEND_NOTIFICATION': {
+        const notifTitle = payload?.title || 'MERY';
+        const notifBody = payload?.body || '';
+        showSystemNotification(notifTitle, { body: notifBody });
+        stateManager.notify(`${notifTitle}: ${notifBody}`, 'info');
         break;
+      }
       case 'FORGET_MEMORY':
         if (payload?.keyOrId) {
           const all = memoryManager.getAllMemories();
           const m = all.find((item) => item.id === payload.keyOrId || item.key.toLowerCase() === payload.keyOrId.toLowerCase());
           if (m) memoryManager.removeMemory(m.id);
         }
+        break;
+      case 'SEND_EMAIL':
+        toolManager.executeTool('sendEmail', payload);
+        break;
+      case 'READ_INBOX':
+        toolManager.executeTool('readInbox', payload);
+        break;
+      case 'SEND_WHATSAPP':
+        toolManager.executeTool('sendWhatsAppMessage', payload);
+        break;
+      case 'GET_WHATSAPP_SUMMARY':
+        toolManager.executeTool('getWhatsAppGroupSummary', payload);
+        break;
+      case 'GITHUB_ACTION':
+        toolManager.executeTool('githubAction', payload);
+        break;
+      case 'NOTION_ACTION':
+        toolManager.executeTool('notionAction', payload);
+        break;
+      case 'SEND_TELEGRAM':
+        toolManager.executeTool('sendTelegramMessage', payload);
+        break;
+      case 'TRIGGER_SOS':
+        safetyManager.triggerEmergencySOS(payload?.reason || 'Voice trigger');
         break;
       default:
         break;
@@ -748,6 +899,11 @@ export default function App() {
   // Send Message (Voice or Quiet text)
   const handleSendMessage = async (text: string, acoustic?: AcousticSignals) => {
     if (!text.trim() || isThinkingRef.current) return;
+
+    // Check if answering an incoming telephony call
+    if (telephonyBridge.checkVoiceCallResponse(text)) {
+      return;
+    }
 
     setUserLiveTranscript('');
 
@@ -779,6 +935,12 @@ export default function App() {
       { timeOfDay: actCtx.timeOfDay, focusMinutes: actCtx.focusMinutes }
     );
 
+    const activeSkillsPrompt = skillManager.getMergedPromptFragment();
+    const combinedUserNote = [
+      memories.length > 0 ? memories.map((m) => m.text).join('; ') : '',
+      activeSkillsPrompt ? `ACTIVE SKILLS INSTRUCTION:\n${activeSkillsPrompt}` : '',
+    ].filter(Boolean).join('\n\n') || undefined;
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -786,7 +948,7 @@ export default function App() {
         body: JSON.stringify({
           messages: newHistory.map((m) => ({ role: m.role, content: m.content })),
           language: stateManager.getLanguage(),
-          userNote: memories.length > 0 ? memories.map((m) => m.text).join('; ') : undefined,
+          userNote: combinedUserNote,
           emotionalContext: {
             primary: emoAnalysis.userEmotion.primary,
             confidence: emoAnalysis.userEmotion.confidence,
@@ -940,10 +1102,14 @@ export default function App() {
         </div>
       )}
 
+      {/* Incoming Telephony Call HUD */}
+      <IncomingCallBanner />
+
       {/* Main Experience Stage (Variation 11: Mobile Neural Interface) */}
       <div className="flex-1 min-h-0 w-full flex flex-col relative z-10">
         <VoiceOrbStage
           onOpenSettings={() => setIsApiSettingsOpen(true)}
+          onOpenSkillStore={() => setIsSkillStoreOpen(true)}
           onOpenTools={() => setIsToolNexusOpen(true)}
           onOpenTranscript={() => setIsTranscriptOpen(true)}
           onOpenAgentDev={() => setIsAgentDevOpen(true)}
@@ -951,9 +1117,23 @@ export default function App() {
           onOpenSystemControl={() => setIsSystemControlOpen(true)}
           onOpenActivity={() => setIsActivityOpen(true)}
           onOpenEmotion={() => setIsEmotionOpen(true)}
+          onOpenJournal={() => setIsJournalOpen(true)}
+          onOpenDocuments={() => setIsDocumentsOpen(true)}
+          onOpenWhiteboard={() => setIsWhiteboardOpen(true)}
+          onOpenStudySettings={() => {
+            setSettingsInitialTab('productivity');
+            setIsApiSettingsOpen(true);
+          }}
           voiceEnabled={!voiceMuted}
           onToggleVoice={() => setVoiceMuted(!voiceMuted)}
+          wakeWordEnabled={false}
           onStartVoiceSession={handleStartVoiceSession}
+          onStopVoiceSession={stopFullDuplexEngine}
+          onInterruptSpeech={() => {
+            voiceService.stopAudio();
+            liveSession.handleUserInterrupt();
+          }}
+          isVoiceActive={fullDuplexActive}
           onSendMessage={handleSendMessage}
           isThinking={isThinking}
           messageCount={messages.length}
@@ -970,6 +1150,9 @@ export default function App() {
           messages={messages}
           onPlayVoice={speakResponse}
           playingMessageId={playingMessageId}
+          currentEmotion={currentEmotion}
+          immersiveCallMode={immersiveCallMode}
+          onToggleImmersiveCallMode={handleToggleImmersiveCallMode}
         >
           <AnimeAvatar3D
             state={hologramState}
@@ -978,11 +1161,13 @@ export default function App() {
             onStartSession={handleStartVoiceSession}
             onClick={async () => {
               const st = stateManager.getState();
-              if (st === 'disconnected') {
+              if (st === 'disconnected' && !fullDuplexActive) {
                 await handleStartVoiceSession();
-              } else if (st === 'speaking') {
+              } else if (st === 'speaking' || voiceService.isSpeaking()) {
+                voiceService.stopAudio();
                 liveSession.handleUserInterrupt();
               } else {
+                stopFullDuplexEngine();
                 liveSession.disconnect();
               }
             }}
@@ -1013,6 +1198,12 @@ export default function App() {
       <MeryIdentityModal
         isOpen={isIdentityOpen}
         onClose={() => setIsIdentityOpen(false)}
+      />
+
+      {/* Voice Selection: preview & pick MERY's browser TTS voice */}
+      <VoiceSelectionModal
+        isOpen={isVoiceSelectionOpen}
+        onClose={() => setIsVoiceSelectionOpen(false)}
       />
 
       {/* System Control Dashboard */}
@@ -1048,10 +1239,48 @@ export default function App() {
         onClose={() => setSafetyRequest(null)}
       />
 
-      {/* API & External Provider Integrations Modal */}
-      <ApiManagementModal
+      {/* Unified System Settings & Integrations Modal */}
+      <UnifiedSettingsModal
         isOpen={isApiSettingsOpen}
         onClose={() => setIsApiSettingsOpen(false)}
+        initialTab={settingsInitialTab}
+        immersiveCallMode={immersiveCallMode}
+        onToggleImmersiveCallMode={handleToggleImmersiveCallMode}
+        onSyncState={() => {
+          handoffManager.pushState({
+            messages,
+            activePersonaId: personaManager.getActivePersona()?.id || 'mery-default',
+            dominantEmotion: currentEmotion,
+          });
+        }}
+        onOpenSkillStore={() => {
+          setIsApiSettingsOpen(false);
+          setIsSkillStoreOpen(true);
+        }}
+      />
+
+      {/* Mery Journal Modal */}
+      <JournalPanel
+        isOpen={isJournalOpen}
+        onClose={() => setIsJournalOpen(false)}
+      />
+
+      {/* Mery Scoped Documents Manager */}
+      <DocumentsPanel
+        isOpen={isDocumentsOpen}
+        onClose={() => setIsDocumentsOpen(false)}
+      />
+
+      {/* Live Whiteboard & Sketchpad */}
+      <WhiteboardModal
+        isOpen={isWhiteboardOpen}
+        onClose={() => setIsWhiteboardOpen(false)}
+      />
+
+      {/* Mery Skill Store Modal */}
+      <SkillStoreModal
+        isOpen={isSkillStoreOpen}
+        onClose={() => setIsSkillStoreOpen(false)}
       />
 
       {/* Modular Tool Nexus & Telemetry Drawer */}

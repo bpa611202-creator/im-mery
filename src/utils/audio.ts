@@ -108,11 +108,60 @@ export interface FullDuplexConfig {
   onError?: (err: any) => void;
 }
 
+// --- Voice quality filters (module-level so they're defined once, not re-created per call) ---
+
+// Absolute male identification filter: reject masculine voices
+function isMaleVoice(v: SpeechSynthesisVoice): boolean {
+  const s = `${v.name} ${v.voiceURI} ${v.lang}`.toLowerCase();
+  return (
+    /\b(male|man|boy|david|george|mark|ravi|hemant|niranjan|madhav|guy|stefan|daniel|oliver|richard|james|brian|russell|michael|paul|tom|alex|fred|shah|neil|alok|ajay|kunal|rahul|sean|pradeep|tarun|microsoft david|microsoft mark|microsoft ravi)\b/i.test(s) ||
+    s.includes('(male)') ||
+    s.includes('- male') ||
+    s.includes(' male ')
+  );
+}
+
+// Robotic voice filter: reject mechanical, low-quality synthesizers
+function isRoboticVoice(v: SpeechSynthesisVoice): boolean {
+  const s = `${v.name} ${v.voiceURI}`.toLowerCase();
+  return /\b(espeak|desktop|zira|speech-dispatcher|synthesizer|robot|festival|mbrola|klatt)\b/i.test(s);
+}
+
+// Absolute female identification filter: prioritize feminine voices
+function isFemaleVoice(v: SpeechSynthesisVoice): boolean {
+  const s = `${v.name} ${v.voiceURI} ${v.lang}`.toLowerCase();
+  return (
+    !isMaleVoice(v) &&
+    (/\b(female|woman|girl|dhwani|swara|kalpana|diti|geeta|shruti|kavya|vaani|leela|ananya|neerja|heera|priya|sunita|samantha|karen|victoria|fiona|moira|tessa|veena|jenny|aria|ava|emma|sonia|natural|online)\b/i.test(s) ||
+    s.includes('(female)') ||
+    s.includes('- female') ||
+    s.includes(' female '))
+  );
+}
+
+// Quality scoring: prioritize modern Natural, Online, Neural, Google, Apple Enhanced female voices
+function scoreVoice(v: SpeechSynthesisVoice): number {
+  const s = `${v.name} ${v.voiceURI}`.toLowerCase();
+  let score = 0;
+  if (isRoboticVoice(v)) score -= 150;
+  if (isMaleVoice(v)) score -= 200;
+  if (isFemaleVoice(v)) score += 50;
+  if (s.includes('natural')) score += 60;
+  if (s.includes('online')) score += 45;
+  if (s.includes('neural')) score += 40;
+  if (s.includes('google')) score += 35;
+  if (s.includes('enhanced')) score += 30;
+  if (s.includes('premium')) score += 30;
+  if (s.includes('siri')) score += 25;
+  return score;
+}
+
 class VoiceService {
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
   private isPlaying: boolean = false;
+  private onPlaybackEndCallback: (() => void) | null = null;
   private recognition: any = null;
   private isRecognizing: boolean = false;
   private isFullDuplexRunning = false;
@@ -121,12 +170,63 @@ class VoiceService {
   private currentSpokenText = '';
   private restartTimeout: any = null;
   private isWokenUp = false;
+  private micStream: MediaStream | null = null;
+  private lastSpokenText: string = '';
+
+  // Proactively check and request microphone permission via getUserMedia
+  // This triggers the browser prompt if needed and enables echo cancellation/noise suppression
+  public async ensureMicrophonePermission(): Promise<{ granted: boolean; error?: string }> {
+    if (typeof window === 'undefined') return { granted: false, error: 'no-window' };
+
+    const SpeechRecognitionClass =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) {
+      return { granted: false, error: 'speech-recognition-unsupported' };
+    }
+
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        if (!this.micStream || !this.micStream.active) {
+          this.micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+        }
+        // Connect to analyser for realtime audio waveforms if audio context is active
+        if (this.audioCtx && this.analyser && this.micStream) {
+          try {
+            const source = this.audioCtx.createMediaStreamSource(this.micStream);
+            source.connect(this.analyser);
+          } catch {}
+        }
+        return { granted: true };
+      } catch (err: any) {
+        console.warn('[VoiceService] Microphone access check notice:', err?.name, err?.message);
+        if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+          return { granted: false, error: 'not-allowed' };
+        }
+        // Return granted so SpeechRecognition can attempt connection on hardware-specific states
+        return { granted: true };
+      }
+    }
+    return { granted: true };
+  }
 
   // SpeechSynthesis persistence and watchdog to prevent hanging states and Chrome GC bugs
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private speechWatchdogTimer: any = null;
   private speechHeartbeatTimer: any = null;
   private currentLanguage: string = (typeof window !== 'undefined' && localStorage.getItem('mery_spoken_language')) || 'gu-IN';
+
+  // The ONE voice MERY speaks with for the entire session, regardless of language.
+  // undefined = not yet resolved (voices list may still be loading); null = resolved, none found.
+  private pinnedVoice: SpeechSynthesisVoice | null | undefined = undefined;
+  // Becomes true the first moment real speech actually plays - before that,
+  // the pinned choice stays open to being refined as more voices load in.
+  private voiceSelectionFinalized: boolean = false;
 
   public setLanguage(lang: string) {
     let normalized = lang;
@@ -150,15 +250,133 @@ class VoiceService {
     return this.currentLanguage;
   }
 
+  public getAvailableVoicesRanked(): SpeechSynthesisVoice[] {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return [];
+    const voices = window.speechSynthesis.getVoices();
+    return voices
+      .filter((v) => !isRoboticVoice(v))
+      .filter((v) => {
+        const lang = v.lang.toLowerCase();
+        const name = v.name.toLowerCase();
+        return (
+          lang.startsWith('gu') ||
+          lang.startsWith('hi') ||
+          lang.startsWith('en') ||
+          name.includes('gujarat') ||
+          name.includes('hindi')
+        );
+      })
+      .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+  }
+
+  public previewVoice(voice: SpeechSynthesisVoice): void {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const lang = voice.lang.toLowerCase();
+    const sample = lang.startsWith('gu')
+      ? 'નમસ્તે, હું મેરી છું.'
+      : lang.startsWith('hi')
+      ? 'नमस्ते, मैं मेरी हूँ।'
+      : "Hi, I'm Mery.";
+    const utt = new SpeechSynthesisUtterance(sample);
+    utt.voice = voice;
+    utt.lang = voice.lang;
+    utt.pitch = 1.0;
+    utt.rate = 1.0;
+    window.speechSynthesis.speak(utt);
+  }
+
+  public getSelectedVoiceURI(): string | null {
+    try {
+      return typeof window !== 'undefined' ? localStorage.getItem('mery_selected_voice_uri') : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public selectVoice(voice: SpeechSynthesisVoice): void {
+    this.pinnedVoice = voice;
+    try {
+      localStorage.setItem('mery_selected_voice_uri', voice.voiceURI);
+    } catch {}
+  }
+
+  private getPinnedVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+    // Once real speech has actually started, keep using that exact voice for
+    // the rest of the session - don't let it change mid-conversation.
+    if (this.voiceSelectionFinalized && this.pinnedVoice !== undefined) return this.pinnedVoice;
+    if (!voices || voices.length === 0) return this.pinnedVoice ?? null;
+
+    // Respect a voice the user manually picked in the Voice Selection UI
+    try {
+      const savedURI = typeof window !== 'undefined' ? localStorage.getItem('mery_selected_voice_uri') : null;
+      if (savedURI) {
+        const saved = voices.find((v) => v.voiceURI === savedURI);
+        if (saved) {
+          this.pinnedVoice = saved;
+          return saved;
+        }
+      }
+    } catch {}
+
+    const gujaratiVoices = voices
+      .filter(
+        (v) =>
+          (v.lang.toLowerCase().startsWith('gu') ||
+            v.lang.toLowerCase().includes('gujarat') ||
+            v.name.toLowerCase().includes('gujarat')) &&
+          !isMaleVoice(v) &&
+          !isRoboticVoice(v)
+      )
+      .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+    const hindiVoices = voices
+      .filter(
+        (v) =>
+          (v.lang.toLowerCase().startsWith('hi') || v.name.toLowerCase().includes('hindi')) &&
+          !isMaleVoice(v) &&
+          !isRoboticVoice(v)
+      )
+      .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+    const englishVoices = voices
+      .filter((v) => v.lang.toLowerCase().startsWith('en') && !isMaleVoice(v) && !isRoboticVoice(v) && isFemaleVoice(v))
+      .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+    const chosen =
+      gujaratiVoices.find(isFemaleVoice) ||
+      gujaratiVoices[0] ||
+      hindiVoices.find(isFemaleVoice) ||
+      hindiVoices[0] ||
+      englishVoices[0] ||
+      voices[0] ||
+      null;
+
+    this.pinnedVoice = chosen;
+    return chosen;
+  }
+
   constructor() {
-    // Warm up speech synthesis voices in browser
+    // Warm up speech synthesis voices AND keep refining the pinned voice as
+    // better voice batches arrive (Android/some browsers expose voices in
+    // stages - a small basic set first, then a fuller/better set moments
+    // later). We deliberately do NOT lock the choice here: locking too early
+    // can pin onto an inferior voice from the first, incomplete batch. The
+    // choice only gets locked once real speech actually starts (see
+    // voiceSelectionFinalized in speakBrowserVoice), so by the time the user
+    // is actually talking to MERY, the pinned voice reflects the full,
+    // final list.
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.getVoices();
-      window.speechSynthesis.onvoiceschanged = () => {
+      const refreshPinnedVoice = () => {
         try {
-          window.speechSynthesis.getVoices();
+          const v = window.speechSynthesis.getVoices();
+          if (v.length > 0 && !this.voiceSelectionFinalized) {
+            this.getPinnedVoice(v);
+          }
         } catch {}
       };
+      refreshPinnedVoice();
+      window.speechSynthesis.addEventListener('voiceschanged', refreshPinnedVoice);
     }
   }
 
@@ -244,6 +462,53 @@ class VoiceService {
     }
   }
 
+  public setOnPlaybackEndCallback(callback: (() => void) | null): void {
+    this.onPlaybackEndCallback = callback;
+  }
+
+  // Closes mic when Mery starts speaking to prevent audio overlap, feedback, and Bluetooth duplex issues
+  public onPlaybackStart(): void {
+    this.isPlaying = true;
+    clearTimeout(this.restartTimeout);
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch {}
+    }
+    this.isRecognizing = false;
+  }
+
+  // Triggered when Mery finishes speaking: fires onPlaybackEndCallback and restarts speech engine after ~300ms
+  public onPlaybackEnd(): void {
+    this.isPlaying = false;
+    try {
+      this.onPlaybackEndCallback?.();
+    } catch (e) {
+      console.warn('[VoiceService] onPlaybackEndCallback notice:', e);
+    }
+
+    if (this.isFullDuplexRunning) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = setTimeout(() => {
+        if (this.isFullDuplexRunning && !this.isPlaying) {
+          this.launchSpeechEngine();
+        }
+      }, 300);
+    }
+  }
+
+  public setPlaying(playing: boolean): void {
+    if (playing) {
+      this.onPlaybackStart();
+    } else {
+      this.onPlaybackEnd();
+    }
+  }
+
+  public notifyPlaybackEnded(): void {
+    this.onPlaybackEnd();
+  }
+
   // Play Gemini 24kHz raw PCM or WAV base64
   public async playGeminiAudio(base64Data: string, sampleRate = 24000): Promise<void> {
     this.stopAudio();
@@ -278,12 +543,12 @@ class VoiceService {
       }
 
       this.currentSource = source;
-      this.isPlaying = true;
+      this.onPlaybackStart();
 
       return new Promise((resolve) => {
         source.onended = () => {
-          this.isPlaying = false;
           this.currentSource = null;
+          this.onPlaybackEnd();
           resolve();
         };
         source.start(0);
@@ -319,12 +584,12 @@ class VoiceService {
       }
 
       this.currentSource = source;
-      this.isPlaying = true;
+      this.onPlaybackStart();
 
       return new Promise((resolve) => {
         source.onended = () => {
-          this.isPlaying = false;
           this.currentSource = null;
+          this.onPlaybackEnd();
           resolve();
         };
         source.start(0);
@@ -351,7 +616,7 @@ class VoiceService {
     this.stopAudio();
 
     // Clean text of emotion tags, code blocks, URLs, markdown symbols, and emojis for smooth, human speech
-    const cleanText = text
+    let cleanText = text
       .replace(/\[emotion:\s*[^\]]+\]/gi, '')
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`[^`]*`/g, '')
@@ -372,174 +637,32 @@ class VoiceService {
         window.speechSynthesis.resume();
       }
 
+      const voices = window.speechSynthesis.getVoices();
+      const pinnedVoice = this.getPinnedVoice(voices);
+      // Real speech is about to play - lock this exact voice for the rest of
+      // the session so it can no longer drift, even if more voiceschanged
+      // events fire later.
+      this.voiceSelectionFinalized = true;
+      const pinnedLang = (pinnedVoice?.lang || this.currentLanguage || 'gu-IN').toLowerCase();
+
+      const hasGujarati = /[\u0A80-\u0AFF]/.test(cleanText);
+      if (hasGujarati && !pinnedLang.startsWith('gu')) {
+        cleanText = pinnedLang.startsWith('hi')
+          ? convertGujaratiToDevanagari(cleanText)
+          : transliterateGujaratiToGujlish(cleanText);
+      }
+
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      // Pure, un-mangled human acoustic pitch (1.0 = baseline recording of voice actress)
-      // Clamped strictly to [0.96, 1.04] to prevent DSP vocoder robotic distortion
       const targetPitch = vocalParams?.pitch ?? 1.0;
       utterance.pitch = Math.min(1.04, Math.max(0.96, targetPitch));
       const targetRate = vocalParams?.rate ?? 1.0;
       utterance.rate = Math.min(1.08, Math.max(0.92, targetRate));
       utterance.volume = 1.0;
 
-      // Keep utterance reference alive on instance so Chromium GC doesn't abort speech prematurely
       this.currentUtterance = utterance;
 
-      // 1. Determine requested language locale
-      const hasGujarati = /[\u0A80-\u0AFF]/.test(cleanText);
-      const hasHindi = /[\u0900-\u097F]/.test(cleanText);
-      const isAsciiOnly = /^[A-Za-z0-9\s.,!?'"()\-:;/@#$%^&*_+=\[\]{}<>~`]+$/.test(cleanText);
-
-      let requestedLang = this.currentLanguage || 'gu-IN';
-      if (hasGujarati) {
-        requestedLang = 'gu-IN';
-      } else if (hasHindi) {
-        requestedLang = 'hi-IN';
-      } else if (isAsciiOnly && (requestedLang === 'gu-IN' || requestedLang === 'hi-IN')) {
-        const hasGujlishWords = /\b(chhe|che|chho|kem|mare|tame|aapno|shun|su|nathi|karvu|karvi|aavi|aavje|majama|ha|na|samji|bol|bolo|mane|tamne)\b/i.test(cleanText);
-        if (!hasGujlishWords) {
-          requestedLang = 'en-IN';
-        }
-      }
-
-      console.log('[VOICE] requested:', requestedLang, 'hasGujarati:', hasGujarati, 'hasHindi:', hasHindi);
-
-      const voices = window.speechSynthesis.getVoices();
-
-      // Absolute male identification filter: reject masculine voices
-      const isMaleVoice = (v: SpeechSynthesisVoice): boolean => {
-        const s = `${v.name} ${v.voiceURI} ${v.lang}`.toLowerCase();
-        return (
-          /\b(male|man|boy|david|george|mark|ravi|hemant|niranjan|madhav|guy|stefan|daniel|oliver|richard|james|brian|russell|michael|paul|tom|alex|fred|shah|neil|alok|ajay|kunal|rahul|sean|pradeep|tarun|microsoft david|microsoft mark|microsoft ravi)\b/i.test(s) ||
-          s.includes('(male)') ||
-          s.includes('- male') ||
-          s.includes(' male ')
-        );
-      };
-
-      // Robotic voice filter: reject mechanical, low-quality synthesizers
-      const isRoboticVoice = (v: SpeechSynthesisVoice): boolean => {
-        const s = `${v.name} ${v.voiceURI}`.toLowerCase();
-        return /\b(espeak|desktop|zira|speech-dispatcher|synthesizer|robot|festival|mbrola|klatt)\b/i.test(s);
-      };
-
-      // Absolute female identification filter: prioritize feminine voices
-      const isFemaleVoice = (v: SpeechSynthesisVoice): boolean => {
-        const s = `${v.name} ${v.voiceURI} ${v.lang}`.toLowerCase();
-        return (
-          !isMaleVoice(v) &&
-          (/\b(female|woman|girl|dhwani|swara|kalpana|diti|geeta|shruti|kavya|vaani|leela|ananya|neerja|heera|priya|sunita|samantha|karen|victoria|fiona|moira|tessa|veena|jenny|aria|ava|emma|sonia|natural|online)\b/i.test(s) ||
-          s.includes('(female)') ||
-          s.includes('- female') ||
-          s.includes(' female '))
-        );
-      };
-
-      // Quality scoring: prioritize modern Natural, Online, Neural, Google, Apple Enhanced female voices
-      const scoreVoice = (v: SpeechSynthesisVoice): number => {
-        const s = `${v.name} ${v.voiceURI}`.toLowerCase();
-        let score = 0;
-        if (isRoboticVoice(v)) score -= 150;
-        if (isMaleVoice(v)) score -= 200;
-        if (isFemaleVoice(v)) score += 50;
-        if (s.includes('natural')) score += 60;
-        if (s.includes('online')) score += 45;
-        if (s.includes('neural')) score += 40;
-        if (s.includes('google')) score += 35;
-        if (s.includes('enhanced')) score += 30;
-        if (s.includes('premium')) score += 30;
-        if (s.includes('siri')) score += 25;
-        return score;
-      };
-
-      let selectedVoice: SpeechSynthesisVoice | null = null;
-
-      if (requestedLang === 'gu-IN' || requestedLang.startsWith('gu')) {
-        utterance.lang = 'gu-IN';
-        utterance.text = cleanText;
-
-        // 1. First priority: Native Gujarati female / natural voice
-        const gujaratiVoices = voices
-          .filter(
-            (v) =>
-              (v.lang.toLowerCase().startsWith('gu') ||
-                v.lang.toLowerCase().includes('gujarat') ||
-                v.name.toLowerCase().includes('gujarat')) &&
-              !isMaleVoice(v) &&
-              !isRoboticVoice(v)
-          )
-          .sort((a, b) => scoreVoice(b) - scoreVoice(a));
-
-        selectedVoice = gujaratiVoices.find(isFemaleVoice) || gujaratiVoices[0] || null;
-
-        if (selectedVoice) {
-          utterance.voice = selectedVoice;
-          utterance.lang = selectedVoice.lang || 'gu-IN';
-          console.log('[VOICE] Selected native Gujarati voice:', selectedVoice.name, 'locale:', utterance.lang);
-        } else {
-          // Keep utterance.lang = 'gu-IN' and utterance.voice = null so the browser's native Gujarati engine speaks directly
-          utterance.voice = null;
-          utterance.lang = 'gu-IN';
-          console.log('[VOICE] Using browser-native Gujarati voice synthesis (utterance.lang = "gu-IN")');
-        }
-      } else if (requestedLang === 'hi-IN' || requestedLang.startsWith('hi')) {
-        utterance.lang = 'hi-IN';
-        const hindiVoices = voices
-          .filter(
-            (v) =>
-              (v.lang.toLowerCase().startsWith('hi') ||
-                v.name.toLowerCase().includes('hindi')) &&
-              !isMaleVoice(v) &&
-              !isRoboticVoice(v)
-          )
-          .sort((a, b) => scoreVoice(b) - scoreVoice(a));
-
-        selectedVoice = hindiVoices.find(isFemaleVoice) || hindiVoices[0] || null;
-
-        if (!selectedVoice) {
-          selectedVoice = voices
-            .filter(
-              (v) =>
-                (v.lang.toLowerCase().startsWith('en-in') || v.name.toLowerCase().includes('india')) &&
-                !isMaleVoice(v) &&
-                !isRoboticVoice(v) &&
-                isFemaleVoice(v)
-            )
-            .sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] || null;
-        }
-
-        if (selectedVoice) {
-          utterance.voice = selectedVoice;
-          utterance.lang = selectedVoice.lang.toLowerCase().startsWith('hi') ? selectedVoice.lang : 'hi-IN';
-          console.log('[VOICE] Selected natural Hindi voice:', selectedVoice.name);
-        } else {
-          utterance.voice = null;
-          utterance.lang = 'hi-IN';
-        }
-      } else {
-        // English
-        const enLocale = requestedLang.startsWith('en') ? requestedLang : 'en-IN';
-        utterance.lang = enLocale;
-        const enVoices = voices
-          .filter(
-            (v) =>
-              v.lang.toLowerCase().startsWith('en') &&
-              !isMaleVoice(v) &&
-              !isRoboticVoice(v) &&
-              isFemaleVoice(v)
-          )
-          .sort((a, b) => scoreVoice(b) - scoreVoice(a));
-
-        selectedVoice = enVoices[0] || null;
-
-        if (selectedVoice) {
-          utterance.voice = selectedVoice;
-          utterance.lang = selectedVoice.lang || enLocale;
-          console.log('[VOICE] Selected natural English voice:', selectedVoice.name);
-        } else {
-          utterance.voice = null;
-          utterance.lang = enLocale;
-        }
-      }
+      utterance.voice = pinnedVoice;
+      utterance.lang = pinnedVoice?.lang || 'gu-IN';
 
       let hasEnded = false;
       const cleanupAndEnd = () => {
@@ -550,12 +673,16 @@ class VoiceService {
         this.speechWatchdogTimer = null;
         this.speechHeartbeatTimer = null;
         this.currentUtterance = null;
-        this.isPlaying = false;
+        this.lastSpokenText = '';
+        // Clear current spoken text so any ambient noise or speaker echo does not bleed into next turn
+        this.currentSpokenText = '';
+        this.onPlaybackEnd();
         onEnd?.();
       };
 
       utterance.onstart = () => {
-        this.isPlaying = true;
+        this.onPlaybackStart();
+        this.lastSpokenText = cleanText.toLowerCase();
         onStart?.();
 
         // Chrome 15-second speech synthesis pause bug workaround
@@ -597,8 +724,8 @@ class VoiceService {
       }
     } catch (err) {
       console.warn('Speech synthesis initialization error:', err);
-      this.isPlaying = false;
       this.currentUtterance = null;
+      this.onPlaybackEnd();
       onEnd?.();
     }
   }
@@ -632,7 +759,9 @@ class VoiceService {
         window.speechSynthesis.cancel();
       } catch {}
     }
-    this.isPlaying = false;
+    if (this.isPlaying) {
+      this.onPlaybackEnd();
+    }
   }
 
   // Complete cleanup: stops recognition, stops audio, and closes audioCtx
@@ -663,10 +792,10 @@ class VoiceService {
       return false;
     }
 
-    this.fullDuplexConfig = config;
+    this.fullDuplexConfig = { ...config, wakeWordEnabled: false };
     this.isFullDuplexRunning = true;
     this.currentSpokenText = '';
-    this.isWokenUp = !config.wakeWordEnabled; // If wake word is off, immediately awake
+    this.isWokenUp = true; // Permanently awake - directly responds to all user speech
 
     // Wire Human Conversation Engine decision & backchannel callbacks
     humanConversationEngine.setCallbacks(
@@ -681,7 +810,10 @@ class VoiceService {
           this.fullDuplexConfig.onBackchannel?.(analysis.backchannelText);
           return;
         }
+        // Critical: Clear spoken text buffer BEFORE onSpeechComplete so rec.onend cannot double-commit!
+        this.currentSpokenText = '';
         this.playAcousticChime('listen_stop');
+        this.restartRecognitionForNextTurn();
         this.fullDuplexConfig.onSpeechComplete(fullText, analysis);
       },
       (backchannelText) => {
@@ -694,17 +826,40 @@ class VoiceService {
     return this.launchSpeechEngine();
   }
 
-  public updateFullDuplexConfig(updates: Partial<FullDuplexConfig>): void {
-    if (this.fullDuplexConfig) {
-      this.fullDuplexConfig = { ...this.fullDuplexConfig, ...updates };
-      if (updates.wakeWordEnabled !== undefined) {
-        this.isWokenUp = !updates.wakeWordEnabled;
-      }
+  // Gracefully restart recognition for the next utterance so event.results buffer starts clean
+  private restartRecognitionForNextTurn(): void {
+    if (this.recognition) {
+      try {
+        this.recognition.onstart = null;
+        this.recognition.onend = null;
+        this.recognition.onerror = null;
+        this.recognition.onresult = null;
+        this.recognition.onspeechstart = null;
+        this.recognition.onspeechend = null;
+        this.recognition.abort();
+      } catch {}
+      this.recognition = null;
+    }
+    this.isRecognizing = false;
+    if (this.isFullDuplexRunning) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = setTimeout(() => {
+        if (this.isFullDuplexRunning) {
+          this.launchSpeechEngine();
+        }
+      }, 350);
     }
   }
 
-  public setWokenUp(woken: boolean): void {
-    this.isWokenUp = woken;
+  public updateFullDuplexConfig(updates: Partial<FullDuplexConfig>): void {
+    if (this.fullDuplexConfig) {
+      this.fullDuplexConfig = { ...this.fullDuplexConfig, ...updates, wakeWordEnabled: false };
+      this.isWokenUp = true;
+    }
+  }
+
+  public setWokenUp(_woken: boolean): void {
+    this.isWokenUp = true;
   }
 
   public getIsWokenUp(): boolean {
@@ -715,10 +870,19 @@ class VoiceService {
     return this.isFullDuplexRunning;
   }
 
+  public isSpeaking(): boolean {
+    return this.isPlaying;
+  }
+
   private launchSpeechEngine(): boolean {
     const SpeechRecognitionClass =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionClass || !this.isFullDuplexRunning) {
+      return false;
+    }
+
+    // If Mery is currently speaking, do not open mic or start recognition
+    if (this.isPlaying) {
       return false;
     }
 
@@ -743,42 +907,52 @@ class VoiceService {
       rec.lang = this.currentLanguage === 'auto' ? 'gu-IN' : (this.currentLanguage || 'gu-IN');
 
       rec.onstart = () => {
+        if (this.isPlaying) {
+          try {
+            rec.stop();
+          } catch {}
+          this.isRecognizing = false;
+          return;
+        }
         this.isRecognizing = true;
         this.fullDuplexConfig?.onRecognitionStateChange?.('listening');
       };
 
       rec.onspeechstart = () => {
-        // User started speaking! If MERY is talking, INTERRUPT IMMEDIATELY!
         if (this.isPlaying) {
-          this.stopAudio();
-          this.playAcousticChime('interruption');
-          this.fullDuplexConfig?.onBargeIn();
-          humanConversationEngine.handleBargeIn();
+          try {
+            rec.stop();
+          } catch {}
+          this.isRecognizing = false;
+          return;
         }
+        this.fullDuplexConfig?.onRecognitionStateChange?.('listening');
       };
 
       rec.onresult = (event: any) => {
-        // Double check barge-in interruption
+        // If Mery is speaking, do not just filter text - actually stop recognition to close the mic
         if (this.isPlaying) {
-          this.stopAudio();
-          this.playAcousticChime('interruption');
-          this.fullDuplexConfig?.onBargeIn();
-          humanConversationEngine.handleBargeIn();
+          try {
+            rec.stop();
+          } catch {}
+          this.isRecognizing = false;
+          return;
         }
 
-        let interim = '';
-        let finalChunk = '';
+        // Collect full transcript from all segments in current session
+        let finalTranscripts = '';
+        let interimTranscripts = '';
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
+        for (let i = 0; i < event.results.length; ++i) {
           const res = event.results[i];
           if (res.isFinal) {
-            finalChunk += res[0].transcript + ' ';
+            finalTranscripts += res[0].transcript + ' ';
           } else {
-            interim += res[0].transcript;
+            interimTranscripts += res[0].transcript;
           }
         }
 
-        const candidateText = (this.currentSpokenText + ' ' + finalChunk + ' ' + interim)
+        const candidateText = (finalTranscripts + interimTranscripts)
           .replace(/\s+/g, ' ')
           .trim();
 
@@ -808,12 +982,10 @@ class VoiceService {
           }
         }
 
-        // Live spoken transcript update
-        this.fullDuplexConfig?.onInterimSpeech(candidateText);
+        this.currentSpokenText = candidateText;
 
-        if (finalChunk.trim()) {
-          this.currentSpokenText = (this.currentSpokenText + ' ' + finalChunk).replace(/\s+/g, ' ').trim();
-        }
+        // Live spoken transcript update for UI
+        this.fullDuplexConfig?.onInterimSpeech(candidateText);
 
         // Pass candidate text to HumanConversationEngine for smart turn-taking,
         // dynamic end-of-speech detection, backchanneling, and response decisions
@@ -832,35 +1004,62 @@ class VoiceService {
           return;
         }
 
-        // no-speech happens on natural silence. Commit unfinalized words if present
-        if (error === 'no-speech') {
-          if (this.currentSpokenText.trim().length > 0) {
-            this.commitSpokenSpeech();
+        // Handle language not supported (e.g. gu-IN missing on some systems) with graceful fallback
+        if (error === 'language-not-supported') {
+          console.warn('Language not supported by SpeechRecognition:', rec.lang);
+          if (rec.lang === 'gu-IN') {
+            this.currentLanguage = 'hi-IN';
+          } else {
+            this.currentLanguage = 'en-IN';
+          }
+          if (this.isFullDuplexRunning && !this.isPlaying) {
+            clearTimeout(this.restartTimeout);
+            this.restartTimeout = setTimeout(() => {
+              if (this.isFullDuplexRunning && !this.isPlaying) {
+                this.launchSpeechEngine();
+              }
+            }, 300);
           }
           return;
         }
 
-        if (error === 'aborted') {
+        if (error === 'no-speech' || error === 'aborted') {
           return;
         }
 
-        console.warn('Speech recognition notice:', error);
+        if (error === 'audio-capture') {
+          console.warn('No microphone found or audio capture error.');
+          this.fullDuplexConfig?.onError?.(error);
+          return;
+        }
+
+        console.warn('Speech recognition advisory:', error);
         this.fullDuplexConfig?.onError?.(error);
       };
 
       rec.onend = () => {
         this.isRecognizing = false;
 
-        // If speech was pending in buffer when onend was triggered by silence, commit now
+        // If Mery is currently speaking, do not resurrect recognition;
+        // onPlaybackEnd will restart it ~300ms after playback completes
+        if (this.isPlaying) {
+          return;
+        }
+
+        // If speech was pending in buffer when onend was triggered by silence and turn was not yet dispatched, commit now
         if (this.currentSpokenText.trim().length > 0) {
-          this.commitSpokenSpeech();
+          const textToCommit = this.currentSpokenText.trim();
+          this.currentSpokenText = '';
+          humanConversationEngine.resetSession();
+          this.playAcousticChime('listen_stop');
+          this.fullDuplexConfig?.onSpeechComplete(textToCommit);
         }
 
         // Automatically resurrect listening so MERY stays ready
         if (this.isFullDuplexRunning) {
           clearTimeout(this.restartTimeout);
           this.restartTimeout = setTimeout(() => {
-            if (this.isFullDuplexRunning) {
+            if (this.isFullDuplexRunning && !this.isPlaying) {
               this.launchSpeechEngine();
             }
           }, 200);
@@ -876,33 +1075,15 @@ class VoiceService {
       console.warn('Could not launch speech engine:', err?.message || err);
       this.isRecognizing = false;
       // Reschedule retry after transient startup failure
-      if (this.isFullDuplexRunning) {
+      if (this.isFullDuplexRunning && !this.isPlaying) {
         clearTimeout(this.restartTimeout);
         this.restartTimeout = setTimeout(() => {
-          if (this.isFullDuplexRunning) {
+          if (this.isFullDuplexRunning && !this.isPlaying) {
             this.launchSpeechEngine();
           }
         }, 400);
       }
       return false;
-    }
-  }
-
-  private resetSilenceTimer(): void {
-    clearTimeout(this.silenceTimer);
-    this.silenceTimer = setTimeout(() => {
-      this.commitSpokenSpeech();
-    }, 950);
-  }
-
-  private commitSpokenSpeech(): void {
-    clearTimeout(this.silenceTimer);
-    const textToCommit = this.currentSpokenText.trim();
-    this.currentSpokenText = '';
-
-    if (textToCommit.length > 0 && this.fullDuplexConfig) {
-      this.playAcousticChime('listen_stop');
-      this.fullDuplexConfig.onSpeechComplete(textToCommit);
     }
   }
 
@@ -926,6 +1107,13 @@ class VoiceService {
         this.recognition.abort();
       } catch {}
       this.recognition = null;
+    }
+
+    if (this.micStream) {
+      try {
+        this.micStream.getTracks().forEach((track) => track.stop());
+      } catch {}
+      this.micStream = null;
     }
   }
 

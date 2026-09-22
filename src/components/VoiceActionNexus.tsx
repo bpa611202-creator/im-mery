@@ -205,21 +205,6 @@ export const VoiceActionNexus: React.FC<VoiceActionNexusProps> = ({
             <span>Full-Duplex: <strong>{fullDuplexActive ? 'ALWAYS-READY' : 'PAUSED'}</strong></span>
           </button>
 
-          {/* Wake Word Mode Toggle */}
-          <button
-            id="btn-toggle-wake-word"
-            onClick={onToggleWakeWordMode}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-telemetry transition-all ${
-              wakeWordMode
-                ? 'bg-[#2A1D4D] text-[#E7B7A5] border border-[#E7B7A5]/40 shadow-[0_0_12px_rgba(231,183,165,0.2)]'
-                : 'bg-[#150F26] text-white/60 border border-white/10 hover:text-white'
-            }`}
-            title="When active, MERY waits for 'Hey MERY' or 'MERY' before replying"
-          >
-            <Flame className={`w-3.5 h-3.5 ${wakeWordMode ? 'text-[#E7B7A5]' : 'text-white/40'}`} />
-            <span>Wake Word Mode: <strong>{wakeWordMode ? 'ON' : 'OFF'}</strong></span>
-          </button>
-
           {/* Spoken Language Mode */}
           <button
             id="btn-nexus-toggle-language"

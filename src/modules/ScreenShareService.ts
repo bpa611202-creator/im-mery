@@ -41,7 +41,11 @@ export class ScreenShareService {
           const cleanUrl = window.location.pathname;
           window.history.replaceState({}, '', cleanUrl);
           setTimeout(() => {
-            this.startScreenShare();
+            if (this.isSupported()) {
+              this.startScreenShare();
+            } else {
+              this.requestAllowModal('Display capture restricted in preview mode. You can paste a screenshot (Ctrl+V) or launch a standalone tab.');
+            }
           }, 800);
         }
       }
@@ -100,9 +104,65 @@ export class ScreenShareService {
     return this.stream !== null && this.stream.active && this.stream.getVideoTracks().some(t => t.readyState === 'live');
   }
 
+  public isSupported(): boolean {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+    return Boolean(
+      (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') ||
+      typeof (navigator as any).getDisplayMedia === 'function' ||
+      typeof (navigator as any).webkitGetDisplayMedia === 'function'
+    );
+  }
+
+  // Chrome for Android and Firefox for Android define getDisplayMedia() but never
+  // actually implement it — calling it always rejects with NotAllowedError, on
+  // every site, regardless of what the user does. Same for Safari/Chrome on iOS
+  // (screen capture isn't exposed to web pages there at all). This is a mobile
+  // browser platform limitation, not something any app's code can work around,
+  // so we detect it up front and skip straight to an accurate message instead of
+  // attempting the call and showing a misleading "you dismissed it, try again".
+  public isMobilePlatform(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  }
+
+  public hasVisualContext(): boolean {
+    return this.isSharing() || Boolean(this.latestSnapshot);
+  }
+
+  public async pasteFromClipboard(): Promise<boolean> {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imageType = item.types.find((t) => t.startsWith('image/'));
+          if (imageType) {
+            const blob = await item.getType(imageType);
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const result = reader.result as string;
+                const base64 = result.replace(/^data:image\/[a-z]+;base64,/, '');
+                this.uploadStaticImage(base64);
+                stateManager.notify('📸 Screenshot pasted from clipboard and shared with MERY', 'success');
+                resolve(true);
+              };
+              reader.onerror = () => resolve(false);
+              reader.readAsDataURL(blob);
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[ScreenShareService] Clipboard read error:', err);
+    }
+    return false;
+  }
+
   public getStats() {
     return {
+      isSupported: this.isSupported(),
       isSharing: this.isSharing(),
+      hasVisualContext: this.hasVisualContext(),
       framesSent: this.framesSentCount,
       frameRate: this.settings.frameRate,
       resolution: this.settings.resolution,
@@ -151,11 +211,25 @@ export class ScreenShareService {
   public async startScreenShare(): Promise<boolean> {
     this.lastError = null;
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-      this.lastError = 'Screen capture API is not supported in this browser environment.';
-      logger.log('ERROR', 'system', this.lastError);
-      stateManager.notify('Screen capture API unsupported in this environment', 'error');
+    if (this.isMobilePlatform()) {
+      this.lastError =
+        "Screen/display sharing isn't available in mobile browsers (Chrome on Android and Safari on iOS don't support it — it's a phone browser limitation). You can take a screenshot on your phone and upload it, paste it, or use camera vision.";
+      logger.log('INFO', 'system', 'Screen capture attempted on mobile platform; falling back to modal.');
       this.notify();
+      this.requestAllowModal(this.lastError);
+      return false;
+    }
+
+    const getDisplayMediaFn =
+      (navigator?.mediaDevices?.getDisplayMedia && navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices)) ||
+      ((navigator as any)?.getDisplayMedia && (navigator as any).getDisplayMedia.bind(navigator)) ||
+      ((navigator as any)?.webkitGetDisplayMedia && (navigator as any).webkitGetDisplayMedia.bind(navigator));
+
+    if (!getDisplayMediaFn) {
+      this.lastError = 'Direct display stream is restricted in this browser context. You can paste a screenshot (Ctrl+V), upload an image, or use camera vision.';
+      logger.log('INFO', 'system', 'Screen capture API not natively present; opening vision fallback modal.');
+      this.notify();
+      this.requestAllowModal(this.lastError);
       return false;
     }
 
@@ -172,7 +246,7 @@ export class ScreenShareService {
         audio: this.settings.sendAudioWithScreen,
       };
 
-      const mediaStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+      const mediaStream = await getDisplayMediaFn(displayMediaOptions);
 
       this.stream = mediaStream;
       const videoTrack = mediaStream.getVideoTracks()[0];
@@ -218,17 +292,22 @@ export class ScreenShareService {
       const errMsg = err?.message || String(err);
 
       if (errName === 'NotAllowedError' || errMsg.includes('Permission denied') || errMsg.includes('permission')) {
-        this.lastError = 'Screen capture permission was dismissed or blocked by browser policy.';
-        logger.log('WARNING', 'system', 'Screen capture permission dismissed', { err: errMsg });
-        stateManager.notify('Screen sharing cancelled or permission denied', 'warning');
-      } else if (errMsg.includes('iframe') || errName === 'SecurityError') {
-        this.lastError = 'Embedded preview iframe restricted display capture. Open app in a new tab to share screen.';
-        logger.log('ERROR', 'system', this.lastError);
-        stateManager.notify('To share screen, please open app in a new tab', 'warning');
+        this.lastError = 'Screen capture was dismissed. You can paste a screenshot (Ctrl+V) or try again.';
+        logger.log('INFO', 'system', 'Screen capture permission dismissed by user');
+        stateManager.notify('Screen sharing cancelled', 'info');
+      } else if (
+        errMsg.includes('iframe') ||
+        errName === 'SecurityError' ||
+        errMsg.includes('display-capture') ||
+        errMsg.includes('policy')
+      ) {
+        this.lastError = 'Preview iframe restricted display capture. Open MERY in a standalone tab or paste a screenshot (Ctrl+V).';
+        logger.log('INFO', 'system', this.lastError);
+        stateManager.notify('Preview iframe restricted display capture: open in standalone tab or paste screenshot', 'info');
       } else {
-        this.lastError = `Screen share error: ${errMsg}`;
-        logger.log('ERROR', 'system', this.lastError);
-        stateManager.notify(this.lastError, 'error');
+        this.lastError = `Screen share info: ${errMsg}`;
+        logger.log('INFO', 'system', this.lastError);
+        stateManager.notify(this.lastError, 'info');
       }
 
       this.stopScreenShare();
@@ -303,7 +382,14 @@ export class ScreenShareService {
       this.videoEl.srcObject = null;
     }
 
+    this.latestSnapshot = null;
     this.activeResolution = '0x0';
+    this.notify();
+  }
+
+  public clearVisualContext() {
+    this.stopScreenShare();
+    this.latestSnapshot = null;
     this.notify();
   }
 
@@ -336,12 +422,12 @@ export class ScreenShareService {
 
   public captureSingleFrame(): string | null {
     if (!this.isSharing() || !this.videoEl || !this.canvasEl) {
-      return null;
+      return this.latestSnapshot;
     }
 
     const video = this.videoEl;
     if (video.videoWidth === 0 || video.videoHeight === 0) {
-      return null;
+      return this.latestSnapshot;
     }
 
     const targetDim = this.getDimensions(this.settings.resolution);

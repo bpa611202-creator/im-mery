@@ -97,6 +97,21 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     getKeyUrl: '',
     docsUrl: 'https://duckduckgo.com/api',
   },
+  {
+    id: 'tavily',
+    name: 'Tavily AI Search Engine',
+    category: 'search',
+    apiKey: '',
+    status: 'not_configured',
+    isPrimary: false,
+    isFallback: false,
+    enabled: true,
+    latencyMs: 310,
+    lastChecked: 'Ready',
+    freeTierAvailable: '1,000 free queries/month on free tier.',
+    getKeyUrl: 'https://app.tavily.com',
+    docsUrl: 'https://docs.tavily.com',
+  },
 ];
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {

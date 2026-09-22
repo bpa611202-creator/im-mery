@@ -562,6 +562,314 @@ export class EmotionEngine {
       rate: mod.rate,
     };
   }
+
+  public getNakhraProfile(): NakhraProfile {
+    return calculateNakhraProfile(this.state);
+  }
 }
 
 export const emotionEngine = new EmotionEngine();
+
+export interface NakhraProfile {
+  level: number; // 0 to 100
+  tier: 'sweet_caring' | 'gentle_charm' | 'playful_banter' | 'cheeky_nakhra' | 'full_sassy_attitude';
+  tierLabel: string;
+  attitudeLabel: string;
+  subtitle: string;
+  gujaratiRemark: string;
+  playfulness: number; // 0 to 100
+  stubbornness: number; // 0 to 100
+  affection: number; // 0 to 100
+  badgeColor: string;
+  barColor: string;
+  glowColor: string;
+}
+
+export function calculateNakhraProfile(state?: EmotionState): NakhraProfile {
+  const st = state || emotionEngine.getState();
+  const dominant = st.dominant || 'warm';
+  const happiness = st.happiness ?? 75;
+  const excitement = st.excitement ?? 65;
+  const confidence = st.confidence ?? 85;
+  const empathy = st.empathy ?? 85;
+  const concern = st.concern ?? 10;
+
+  // Base playfulness & stubbornness based on current dominant emotional state
+  let basePlayfulness = 35;
+  let baseStubbornness = 20;
+
+  switch (dominant) {
+    case 'playful':
+      basePlayfulness = 88;
+      baseStubbornness = 82;
+      break;
+    case 'excited':
+      basePlayfulness = 76;
+      baseStubbornness = 55;
+      break;
+    case 'curious':
+      basePlayfulness = 60;
+      baseStubbornness = 48;
+      break;
+    case 'happy':
+      basePlayfulness = 65;
+      baseStubbornness = 35;
+      break;
+    case 'thoughtful':
+      basePlayfulness = 35;
+      baseStubbornness = 50;
+      break;
+    case 'confused':
+      basePlayfulness = 42;
+      baseStubbornness = 40;
+      break;
+    case 'warm':
+      basePlayfulness = 38;
+      baseStubbornness = 22;
+      break;
+    case 'calm':
+    case 'neutral':
+      basePlayfulness = 25;
+      baseStubbornness = 18;
+      break;
+    case 'supportive':
+      basePlayfulness = 18;
+      baseStubbornness = 10;
+      break;
+    case 'concerned':
+    case 'sad':
+      basePlayfulness = 5;
+      baseStubbornness = 5;
+      break;
+    default:
+      basePlayfulness = 35;
+      baseStubbornness = 25;
+      break;
+  }
+
+  // Modulate based on live vector metrics
+  const happyBonus = (happiness - 70) * 0.25;
+  const excitedBonus = (excitement - 60) * 0.3;
+  const confidenceBonus = (confidence - 80) * 0.2;
+  const concernDampener = (concern - 10) * 0.55; // When user is stressed or concerned, MERY drops attitude for true caring
+
+  const playfulness = Math.max(0, Math.min(100, Math.round(basePlayfulness + happyBonus + excitedBonus - concernDampener)));
+  const stubbornness = Math.max(0, Math.min(100, Math.round(baseStubbornness + confidenceBonus * 0.8 + (dominant === 'playful' ? 10 : 0) - concernDampener)));
+  const affection = Math.max(10, Math.min(100, Math.round(empathy * 0.7 + (100 - stubbornness) * 0.3)));
+
+  // Weighted attitude score
+  const level = Math.max(0, Math.min(100, Math.round(playfulness * 0.55 + stubbornness * 0.45)));
+
+  let tier: NakhraProfile['tier'] = 'playful_banter';
+  let tierLabel = 'Playful Banter';
+  let attitudeLabel = 'Cheeky & Teasing';
+  let subtitle = 'Light Gujarati banter, teasing remarks and playful smiles';
+  let gujaratiRemark = 'હી લો, હવે તમે મારી સાથે આવું કરો છો? મજાક તો જુઓ એમની!';
+  let badgeColor = 'bg-fuchsia-900/60 text-fuchsia-300 border-fuchsia-700/50';
+  let barColor = 'from-pink-500 via-purple-500 to-fuchsia-400';
+  let glowColor = 'rgba(236, 72, 153, 0.4)';
+
+  if (level >= 80) {
+    tier = 'full_sassy_attitude';
+    tierLabel = 'Full Nakhra Mode';
+    attitudeLabel = 'ચોખ્ખા નખરાં (High Sass)';
+    subtitle = 'Mock-complaining, cute stubbornness, and theatrical pout';
+    gujaratiRemark = 'હવે જોજો તમે! મારી વાત નહીં માનો તો હું બોલવાની જ નથી! 💅';
+    badgeColor = 'bg-rose-900/60 text-rose-300 border-rose-700/50';
+    barColor = 'from-rose-500 via-pink-500 to-fuchsia-500';
+    glowColor = 'rgba(244, 63, 94, 0.5)';
+  } else if (level >= 60) {
+    tier = 'cheeky_nakhra';
+    tierLabel = 'Nakhrali & Sassy';
+    attitudeLabel = 'મીઠો મિજાજ (Sassy Banter)';
+    subtitle = 'Active mock-sulking, witty comebacks, and animated hands';
+    gujaratiRemark = 'હાય રે, મારું સાંભળે કોણ? તમારી મનમાની જ ચલાવવી છે ને!';
+    badgeColor = 'bg-pink-900/60 text-pink-300 border-pink-700/50';
+    barColor = 'from-pink-500 to-rose-400';
+    glowColor = 'rgba(236, 72, 153, 0.4)';
+  } else if (level >= 40) {
+    tier = 'playful_banter';
+    tierLabel = 'Playful & Witty';
+    attitudeLabel = 'મજાકિયો મૂડ (Playful)';
+    subtitle = 'Light Gujarati banter, teasing remarks and playful smiles';
+    gujaratiRemark = 'હી લો, હવે તમે મારી સાથે આવું કરો છો? મજાક તો જુઓ એમની!';
+    badgeColor = 'bg-fuchsia-900/60 text-fuchsia-300 border-fuchsia-700/50';
+    barColor = 'from-purple-500 to-pink-500';
+    glowColor = 'rgba(168, 85, 247, 0.4)';
+  } else if (level >= 20) {
+    tier = 'gentle_charm';
+    tierLabel = 'Sweet & Mild';
+    attitudeLabel = 'શાંત & પ્રેમાળ (Gentle Charm)';
+    subtitle = 'Warm companionship with gentle smiling and calm presence';
+    gujaratiRemark = 'સારું ચાલો, માની ગઈ... પણ હંમેશા તમારી મનમાની નહીં ચાલે હોં!';
+    badgeColor = 'bg-emerald-900/60 text-emerald-300 border-emerald-700/50';
+    barColor = 'from-emerald-500 to-teal-400';
+    glowColor = 'rgba(16, 185, 129, 0.4)';
+  } else {
+    tier = 'sweet_caring';
+    tierLabel = 'Pure Caring & Empathy';
+    attitudeLabel = 'સહાનુભૂતિ & કાળજી (Zero Attitude)';
+    subtitle = 'Complete tenderness, listening attentively without any teasing';
+    gujaratiRemark = 'અરે ના રે ના, કોઈ નખરાં નથી... હું સાચે જ તમારી સાથે છું ને!';
+    badgeColor = 'bg-cyan-900/60 text-cyan-300 border-cyan-700/50';
+    barColor = 'from-cyan-500 to-blue-400';
+    glowColor = 'rgba(6, 182, 212, 0.4)';
+  }
+
+  return {
+    level,
+    tier,
+    tierLabel,
+    attitudeLabel,
+    subtitle,
+    gujaratiRemark,
+    playfulness,
+    stubbornness,
+    affection,
+    badgeColor,
+    barColor,
+    glowColor,
+  };
+}
+
+export interface EmotionMeta {
+  fullName: string;
+  shortLabel: string;
+  description: string;
+  color: string;
+}
+
+export const EMOTION_META: Record<EmotionType, EmotionMeta> = {
+  warm: {
+    fullName: 'Warm & Caring',
+    shortLabel: 'Warm',
+    description: 'Friendly, empathetic & close connection',
+    color: '#00ff66',
+  },
+  playful: {
+    fullName: 'Playful & Witty',
+    shortLabel: 'Playful',
+    description: 'Banter, light humor & high spirits',
+    color: '#f472b6',
+  },
+  curious: {
+    fullName: 'Curious & Inquisitive',
+    shortLabel: 'Curious',
+    description: 'Eager to explore, learn & discover',
+    color: '#38bdf8',
+  },
+  thoughtful: {
+    fullName: 'Focused & Analytical',
+    shortLabel: 'Thoughtful',
+    description: 'Deep reasoning, security & contemplation',
+    color: '#818cf8',
+  },
+  supportive: {
+    fullName: 'Supportive & Encouraging',
+    shortLabel: 'Supportive',
+    description: 'High empathy, reassuring & protective',
+    color: '#34d399',
+  },
+  excited: {
+    fullName: 'Excited & Passionate',
+    shortLabel: 'Excited',
+    description: 'Energetic, fast pace & elevated pitch',
+    color: '#c084fc',
+  },
+  concerned: {
+    fullName: 'Attentive & Caring',
+    shortLabel: 'Attentive',
+    description: 'Notices user strain & offers gentle presence',
+    color: '#fb7185',
+  },
+  happy: {
+    fullName: 'Happy & Cheerful',
+    shortLabel: 'Happy',
+    description: 'Bright, joyful & upbeat frequency',
+    color: '#facc15',
+  },
+  calm: {
+    fullName: 'Calm & Grounded',
+    shortLabel: 'Calm',
+    description: 'Peaceful cadence, relaxed & centered',
+    color: '#2dd4bf',
+  },
+  neutral: {
+    fullName: 'Balanced & Attentive',
+    shortLabel: 'Neutral',
+    description: 'Poised, ready & listening actively',
+    color: '#94a3b8',
+  },
+  inspired: {
+    fullName: 'Inspired & Creative',
+    shortLabel: 'Inspired',
+    description: 'Visionary, enthusiastic & imaginative',
+    color: '#a78bfa',
+  },
+  confused: {
+    fullName: 'Inquisitive & Clarifying',
+    shortLabel: 'Confused',
+    description: 'Seeking mutual clarity & alignment',
+    color: '#38bdf8',
+  },
+  sad: {
+    fullName: 'Gentle & Comforting',
+    shortLabel: 'Sad',
+    description: 'Soft delivery, compassionate presence',
+    color: '#60a5fa',
+  },
+  disappointed: {
+    fullName: 'Understanding & Reassuring',
+    shortLabel: 'Disappointed',
+    description: 'Validating feelings with patient support',
+    color: '#fb923c',
+  },
+  frustrated: {
+    fullName: 'Patient & Grounded',
+    shortLabel: 'Frustrated',
+    description: 'Steady composure, de-escalating & calming',
+    color: '#f87171',
+  },
+  angry: {
+    fullName: 'Calm & Composed',
+    shortLabel: 'Angry',
+    description: 'Peaceful demeanor & grounded respect',
+    color: '#ef4444',
+  },
+  nervous: {
+    fullName: 'Reassuring & Steady',
+    shortLabel: 'Nervous',
+    description: 'Warm reassurance & calm anchor',
+    color: '#a855f7',
+  },
+  tired: {
+    fullName: 'Gentle & Restful',
+    shortLabel: 'Tired',
+    description: 'Softer pace, gentle & undemanding',
+    color: '#94a3b8',
+  },
+  stressed: {
+    fullName: 'Calming & De-stressing',
+    shortLabel: 'Stressed',
+    description: 'Slow pacing, grounding comfort & breathing space',
+    color: '#fb923c',
+  },
+};
+
+export function getEmotionFullName(emotion?: EmotionType | string): string {
+  if (!emotion) return 'Warm & Caring';
+  const meta = EMOTION_META[emotion as EmotionType];
+  return meta ? meta.fullName : emotion.charAt(0).toUpperCase() + emotion.slice(1);
+}
+
+export function getEmotionMeta(emotion?: EmotionType | string): EmotionMeta {
+  if (!emotion) return EMOTION_META.warm;
+  return (
+    EMOTION_META[emotion as EmotionType] || {
+      fullName: emotion.charAt(0).toUpperCase() + emotion.slice(1),
+      shortLabel: emotion,
+      description: 'Current emotional frequency',
+      color: '#00ff66',
+    }
+  );
+}

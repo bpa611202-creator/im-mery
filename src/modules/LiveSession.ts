@@ -5,6 +5,7 @@ import { toolManager } from './ToolManager';
 import { screenShareService } from './ScreenShareService';
 import { voiceService } from '../utils/audio';
 import { memoryManager } from './MemoryManager';
+import { personaManager } from './PersonaManager';
 
 export class LiveSession {
   private ws: WebSocket | null = null;
@@ -131,11 +132,17 @@ export class LiveSession {
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const activeLang = stateManager.getLanguage() || 'gu-IN';
+        const activePersona = personaManager.getActivePersona();
         const params = new URLSearchParams();
         if (memoriesPrompt) params.set('memories', memoriesPrompt);
         params.set('lang', activeLang);
+        if (activePersona) {
+          params.set('persona', activePersona.id);
+          params.set('voice', activePersona.voice.voiceName);
+          params.set('promptSnippet', activePersona.systemInstructionSnippet);
+        }
         const wsUrl = `${protocol}//${window.location.host}/live?${params.toString()}`;
-        console.log(`[LiveSession] Connecting to ${wsUrl} (connection #${currentId}, lang: ${activeLang})...`);
+        console.log(`[LiveSession] Connecting to ${wsUrl} (connection #${currentId}, persona: ${activePersona.name}, voice: ${activePersona.voice.voiceName}, lang: ${activeLang})...`);
 
         const socket = new WebSocket(wsUrl);
         this.ws = socket;
@@ -184,12 +191,14 @@ export class LiveSession {
                 this.sendScreenFrame(snap);
               }
             } else if (screenShareService.getSettings().autoShareOnLiveStart) {
-              screenShareService.startScreenShare().then((started) => {
-                if (started) {
-                  const snap = screenShareService.captureSingleFrame();
-                  if (snap) this.sendScreenFrame(snap);
-                }
-              }).catch(() => {});
+              if (screenShareService.isSupported()) {
+                screenShareService.startScreenShare().then((started) => {
+                  if (started) {
+                    const snap = screenShareService.captureSingleFrame();
+                    if (snap) this.sendScreenFrame(snap);
+                  }
+                }).catch(() => {});
+              }
             }
 
             safeResolve(true);

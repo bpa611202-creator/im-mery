@@ -13,6 +13,10 @@ export class CameraService {
   private listeners: Set<(isActive: boolean) => void> = new Set();
   private frameListeners: Set<(base64: string) => void> = new Set();
   private streamInterval: any = null;
+  private barcodeDetector: any = null;
+  private barcodeScanInterval: any = null;
+  private barcodeListeners: Set<(result: { rawValue: string; format: string }) => void> = new Set();
+  private isScanningBarcodes: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined' && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
@@ -119,6 +123,8 @@ export class CameraService {
   }
 
   stopCamera() {
+    this.stopBarcodeScanning();
+
     if (this.streamInterval) {
       clearInterval(this.streamInterval);
       this.streamInterval = null;
@@ -177,6 +183,67 @@ export class CameraService {
         }
       }
     }, 1000);
+  }
+
+  isBarcodeDetectionSupported(): boolean {
+    return typeof window !== 'undefined' && 'BarcodeDetector' in window;
+  }
+
+  isScanningForBarcodes(): boolean {
+    return this.isScanningBarcodes;
+  }
+
+  onBarcodeDetected(listener: (result: { rawValue: string; format: string }) => void): () => void {
+    this.barcodeListeners.add(listener);
+    return () => this.barcodeListeners.delete(listener);
+  }
+
+  async startBarcodeScanning(): Promise<{ success: boolean; error?: string }> {
+    if (!this.isBarcodeDetectionSupported()) {
+      return { success: false, error: 'QR/barcode scanning is not supported in this browser.' };
+    }
+
+    if (!this.isActive || this.facingMode !== 'environment') {
+      const camResult = await this.startCamera('environment');
+      if (!camResult.success) return camResult;
+    }
+
+    if (!this.barcodeDetector) {
+      try {
+        this.barcodeDetector = new (window as any).BarcodeDetector({
+          formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'pdf417', 'aztec', 'data_matrix'],
+        });
+      } catch {
+        return { success: false, error: 'Could not initialize the barcode scanner.' };
+      }
+    }
+
+    this.isScanningBarcodes = true;
+
+    if (this.barcodeScanInterval) clearInterval(this.barcodeScanInterval);
+    this.barcodeScanInterval = setInterval(async () => {
+      if (!this.videoElement || !this.isActive || this.videoElement.readyState < 2) return;
+      try {
+        const codes = await this.barcodeDetector.detect(this.videoElement);
+        if (codes && codes.length > 0) {
+          codes.forEach((c: any) => {
+            this.barcodeListeners.forEach((fn) => fn({ rawValue: c.rawValue, format: c.format }));
+          });
+        }
+      } catch {
+        // ignore transient per-frame errors, retry next tick
+      }
+    }, 350);
+
+    return { success: true };
+  }
+
+  stopBarcodeScanning() {
+    this.isScanningBarcodes = false;
+    if (this.barcodeScanInterval) {
+      clearInterval(this.barcodeScanInterval);
+      this.barcodeScanInterval = null;
+    }
   }
 
   private notifyListeners() {

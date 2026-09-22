@@ -190,7 +190,7 @@ function AvatarScene({
         color="#F8ECE6"
       />
 
-      {/* Rim Lights from Behind */}
+      {/* Rim Lights from Behind with Warm Rim Tinting */}
       <directionalLight
         position={[0, 1.6, -1.8]}
         intensity={2.2}
@@ -534,7 +534,7 @@ export const AnimeAvatar3D: React.FC<AnimeAvatar3DProps> = ({
         </Canvas>
       </div>
 
-      {/* Subtle Avatar Mode & Framing Trigger */}
+      {/* Subtle Avatar Mode & Framing Trigger (Bottom Right) */}
       <div
         className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-30 pointer-events-auto"
         onClick={(e) => e.stopPropagation()}

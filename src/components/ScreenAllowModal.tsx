@@ -15,6 +15,8 @@ import {
   Laptop,
   Globe,
   Settings,
+  ClipboardCopy,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { screenShareService } from '../modules/ScreenShareService';
 import { stateManager } from '../modules/StateManager';
@@ -32,6 +34,7 @@ export const ScreenAllowModal: React.FC<ScreenAllowModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'guide' | 'os_mac' | 'os_win' | 'fallback'>('guide');
   const [isStarting, setIsStarting] = useState(false);
+  const [isPasting, setIsPasting] = useState(false);
   const [isSharing, setIsSharing] = useState(screenShareService.isSharing());
   const [lastError, setLastError] = useState<string | null>(reason || null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -44,11 +47,19 @@ export const ScreenAllowModal: React.FC<ScreenAllowModalProps> = ({
     }
   })();
 
+  const isSupported = screenShareService.isSupported();
+  const isMobile = screenShareService.isMobilePlatform();
+
   useEffect(() => {
     if (reason) {
       setLastError(reason);
+      if (!isSupported || isInIframe || isMobile) {
+        setActiveTab('fallback');
+      }
+    } else if (isMobile) {
+      setActiveTab('fallback');
     }
-  }, [reason]);
+  }, [reason, isSupported, isInIframe, isMobile]);
 
   useEffect(() => {
     const unsub = screenShareService.subscribe(() => {
@@ -75,13 +86,31 @@ export const ScreenAllowModal: React.FC<ScreenAllowModalProps> = ({
       if (!success) {
         setLastError(
           screenShareService.getStats().lastError ||
-            'Permission was dismissed or blocked. If in preview iframe, please open in a new tab.'
+            'Direct display stream was restricted in this view. Use Clipboard Paste (Ctrl+V), upload an image, or launch in a standalone tab.'
         );
       }
     } catch (e: any) {
-      setLastError(e?.message || 'Failed to initialize display capture.');
+      setLastError(e?.message || 'Display stream restricted in this browser context.');
     } finally {
       setIsStarting(false);
+    }
+  };
+
+  const handlePasteClipboard = async () => {
+    setIsPasting(true);
+    try {
+      const ok = await screenShareService.pasteFromClipboard();
+      if (ok) {
+        onClose();
+      } else {
+        setLastError(
+          'No image found in clipboard. Press Win+Shift+S (or Cmd+Shift+4) to copy a screenshot, then click Paste or press Ctrl+V anywhere.'
+        );
+      }
+    } catch (err: any) {
+      setLastError('Unable to read clipboard: ' + (err?.message || 'Permission denied'));
+    } finally {
+      setIsPasting(false);
     }
   };
 
@@ -100,7 +129,7 @@ export const ScreenAllowModal: React.FC<ScreenAllowModalProps> = ({
       const result = reader.result as string;
       const base64 = result.replace(/^data:image\/[a-z]+;base64,/, '');
       screenShareService.uploadStaticImage(base64);
-      stateManager.notify('Screenshot loaded into MERY visual context', 'success');
+      stateManager.notify('📸 Screenshot loaded into MERY visual context', 'success');
       onClose();
     };
     reader.readAsDataURL(file);
@@ -189,55 +218,115 @@ export const ScreenAllowModal: React.FC<ScreenAllowModalProps> = ({
           </div>
         )}
 
-        {/* Primary Action Buttons */}
+        {/* Primary Action Grid */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Option 1: Paste from Clipboard */}
+          <button
+            id="btn-allow-paste-clipboard"
+            onClick={handlePasteClipboard}
+            disabled={isPasting}
+            className="p-4 rounded-2xl bg-gradient-to-r from-purple-600/30 to-[#9D7BFF]/20 hover:from-purple-600/40 hover:to-[#9D7BFF]/30 border border-[#9D7BFF]/50 text-white shadow-lg shadow-purple-900/20 transition-all flex items-center justify-between gap-3 text-left group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-purple-500/20 text-[#E7B7A5] border border-purple-500/30 group-hover:scale-105 transition-transform">
+                {isPasting ? (
+                  <RefreshCw className="w-5 h-5 animate-spin text-[#E7B7A5]" />
+                ) : (
+                  <ClipboardCopy className="w-5 h-5" />
+                )}
+              </div>
+              <div>
+                <div className="text-sm font-bold flex items-center gap-2">
+                  Paste from Clipboard
+                  <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-mono text-purple-300">Ctrl+V</span>
+                </div>
+                <div className="text-[11px] text-white/60">
+                  Snip with Win+Shift+S or Cmd+Shift+4 & paste
+                </div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-white/50 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+
+          {/* Option 2: Launch Standalone Window */}
+          <button
+            id="btn-allow-standalone-tab"
+            onClick={handleOpenStandaloneTab}
+            className="p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white transition-all flex items-center justify-between gap-3 text-left group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 group-hover:scale-105 transition-transform">
+                <ExternalLink className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-sm font-bold">Launch Standalone Tab</div>
+                <div className="text-[11px] text-white/60">Enables native OS screen picker in browser</div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-white/50 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+
+          {/* Option 3: Upload Screenshot File */}
+          <button
+            id="btn-allow-upload-screenshot"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white transition-all flex items-center justify-between gap-3 text-left group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 group-hover:scale-105 transition-transform">
+                <ImageIcon className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-sm font-bold">Upload Screenshot File</div>
+                <div className="text-[11px] text-white/60">Select any PNG, JPG, or screen image</div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-white/50 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+
+          {/* Option 4: Try Live Screen Stream */}
           <button
             id="btn-allow-screen-now"
             onClick={handleStartShare}
             disabled={isStarting || isSharing}
-            className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 text-left ${
+            className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 text-left group ${
               isSharing
                 ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
-                : 'bg-gradient-to-r from-purple-600/30 to-[#9D7BFF]/20 hover:from-purple-600/40 hover:to-[#9D7BFF]/30 border-[#9D7BFF]/50 text-white shadow-lg shadow-purple-900/30'
+                : 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/20 text-white'
             }`}
           >
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-white/10 text-white">
+              <div className="p-2.5 rounded-xl bg-white/10 text-white group-hover:scale-105 transition-transform">
                 {isStarting ? (
                   <RefreshCw className="w-5 h-5 animate-spin text-[#E7B7A5]" />
                 ) : isSharing ? (
                   <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                 ) : (
-                  <Monitor className="w-5 h-5 text-[#E7B7A5]" />
+                  <Monitor className="w-5 h-5 text-purple-300" />
                 )}
               </div>
               <div>
                 <div className="text-sm font-bold">
-                  {isStarting ? 'Requesting Permission...' : isSharing ? 'Screen Vision Active' : 'Allow Screen Now'}
+                  {isStarting
+                    ? 'Requesting Dialog...'
+                    : isSharing
+                    ? 'Screen Vision Active'
+                    : 'Try Live Display Stream'}
                 </div>
                 <div className="text-[11px] text-white/60">
                   {isSharing ? 'Transmitting display to MERY' : 'Prompts browser display dialog'}
                 </div>
               </div>
             </div>
-            {!isSharing && <ArrowRight className="w-4 h-4 text-white/50" />}
-          </button>
-
-          <button
-            id="btn-allow-standalone-tab"
-            onClick={handleOpenStandaloneTab}
-            className="p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white transition-all flex items-center justify-between gap-3 text-left"
-          >
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
-                <ExternalLink className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="text-sm font-bold">Launch Standalone Window</div>
-                <div className="text-[11px] text-white/60">Unrestricted browser permissions</div>
-              </div>
-            </div>
-            <ArrowRight className="w-4 h-4 text-white/50" />
+            {!isSharing && <ArrowRight className="w-4 h-4 text-white/50 group-hover:translate-x-0.5 transition-transform" />}
           </button>
         </div>
 

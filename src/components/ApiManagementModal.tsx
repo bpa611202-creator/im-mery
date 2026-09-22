@@ -715,7 +715,13 @@ export const ApiManagementModal: React.FC<ApiManagementModalProps> = ({ isOpen, 
                   ) : (
                     <button
                       id="btn-start-screen-share"
-                      onClick={() => screenShareService.startScreenShare()}
+                      onClick={() => {
+                        if (screenShareService.isInIframe() || !screenShareService.isSupported()) {
+                          screenShareService.requestAllowModal();
+                        } else {
+                          screenShareService.startScreenShare();
+                        }
+                      }}
                       className="flex-1 md:flex-initial px-4 py-2 rounded-xl bg-gradient-to-r from-[#9D7BFF] to-[#E7B7A5] hover:opacity-95 text-[#0A0614] text-xs font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20"
                     >
                       <Play className="w-3.5 h-3.5 fill-[#0A0614]" />

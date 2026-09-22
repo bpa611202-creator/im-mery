@@ -15,6 +15,8 @@ import {
   Settings,
   Activity,
   Check,
+  QrCode,
+  Mic2,
 } from 'lucide-react';
 import { cameraService } from '../modules/CameraService';
 import { screenShareService } from '../modules/ScreenShareService';
@@ -32,6 +34,8 @@ interface ToolsSheetProps {
   onOpenEmotion?: () => void;
   voiceEnabled?: boolean;
   onToggleVoice?: () => void;
+  wakeWordEnabled?: boolean;
+  onToggleWakeWord?: () => void;
   messageCount?: number;
 }
 
@@ -47,14 +51,20 @@ export const ToolsSheet: React.FC<ToolsSheetProps> = ({
   onOpenEmotion,
   voiceEnabled = true,
   onToggleVoice,
+  wakeWordEnabled = false,
+  onToggleWakeWord,
   messageCount = 0,
 }) => {
   const [isCameraActive, setIsCameraActive] = useState(cameraService.isCameraActive());
   const [isSharingScreen, setIsSharingScreen] = useState(screenShareService.isSharing());
+  const [isScanningBarcodes, setIsScanningBarcodes] = useState(cameraService.isScanningForBarcodes());
   const [language, setLanguage] = useState<SpokenLanguage>(stateManager.getLanguage());
 
   useEffect(() => {
-    const unsubCam = cameraService.subscribe((active) => setIsCameraActive(active));
+    const unsubCam = cameraService.subscribe((active) => {
+      setIsCameraActive(active);
+      if (!active) setIsScanningBarcodes(false);
+    });
     const unsubScreen = screenShareService.subscribe(() => setIsSharingScreen(screenShareService.isSharing()));
     const unsubLang = stateManager.onLanguageChange((lang) => setLanguage(lang));
     return () => {
@@ -74,12 +84,39 @@ export const ToolsSheet: React.FC<ToolsSheetProps> = ({
     }
   };
 
+  const isBarcodeSupported = cameraService.isBarcodeDetectionSupported();
+
+  const handleScanQRCode = async () => {
+    if (isScanningBarcodes) {
+      cameraService.stopBarcodeScanning();
+      setIsScanningBarcodes(false);
+      return;
+    }
+    if (!isBarcodeSupported) {
+      stateManager.notify('QR/barcode scanning is not supported in this browser.', 'warning');
+      return;
+    }
+    const result = await cameraService.startBarcodeScanning();
+    if (result.success) {
+      setIsScanningBarcodes(true);
+      onClose();
+    } else {
+      stateManager.notify(result.error || 'Could not start QR scanning.', 'warning');
+    }
+  };
+
+  const isScreenSupported = screenShareService.isSupported();
+
   const handleToggleScreen = async () => {
     if (isSharingScreen) {
       screenShareService.stopScreenShare();
     } else {
+      if (screenShareService.isInIframe() || !isScreenSupported || screenShareService.isMobilePlatform()) {
+        screenShareService.requestAllowModal();
+        return;
+      }
       const ok = await screenShareService.startScreenShare();
-      if (!ok && screenShareService.isInIframe()) {
+      if (!ok) {
         screenShareService.requestAllowModal();
       }
     }
@@ -173,7 +210,33 @@ export const ToolsSheet: React.FC<ToolsSheetProps> = ({
                 </div>
                 <div className="text-left">
                   <div className="font-semibold text-xs">Screen Vision</div>
-                  <div className="text-[10px] text-white/40">{isSharingScreen ? 'Active' : 'Off'}</div>
+                  <div className="text-[10px] text-white/40">
+                    {isSharingScreen ? 'Active' : !isScreenSupported ? 'Fallback / Info' : 'Off'}
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleScanQRCode}
+                className={`p-3 rounded-2xl border flex items-center gap-3 transition-all cursor-pointer ${
+                  isScanningBarcodes
+                    ? 'bg-[#00ff66]/15 border-[#00ff66] text-white shadow-[0_0_15px_rgba(0,255,102,0.2)]'
+                    : 'bg-white/[0.03] border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white'
+                }`}
+              >
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                    isScanningBarcodes ? 'bg-[#00ff66] text-black' : 'bg-white/5 text-white/60'
+                  }`}
+                >
+                  <QrCode className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <div className="font-semibold text-xs">Scan QR Code</div>
+                  <div className="text-[10px] text-white/40">
+                    {isScanningBarcodes ? 'Scanning…' : !isBarcodeSupported ? 'Unsupported' : 'Off'}
+                  </div>
                 </div>
               </button>
             </div>
@@ -202,7 +265,7 @@ export const ToolsSheet: React.FC<ToolsSheetProps> = ({
                     }`}
                   >
                     ગુજરાતી
-                    <span className="block text-[8px] opacity-70">Kathiyawadi</span>
+                    <span className="block text-[8px] opacity-70">Standard</span>
                   </button>
 
                   <button
@@ -233,7 +296,7 @@ export const ToolsSheet: React.FC<ToolsSheetProps> = ({
                 </div>
               </div>
 
-              {/* Audio Mute & Chat Log buttons */}
+              {/* Audio Mute, Wake Word & Chat Log buttons */}
               <div className="flex items-center justify-between pt-2 border-t border-white/5">
                 {onToggleVoice && (
                   <button
@@ -249,6 +312,18 @@ export const ToolsSheet: React.FC<ToolsSheetProps> = ({
                     <span className="text-xs">{voiceEnabled ? 'Voice Output: On' : 'Voice Output: Muted'}</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    window.dispatchEvent(new CustomEvent('open-voice-selection'));
+                  }}
+                  className="flex items-center gap-2 text-white/70 hover:text-white transition-colors cursor-pointer py-1"
+                >
+                  <Mic2 className="w-4 h-4 text-[#00ff66]" />
+                  <span className="text-xs">Change Voice</span>
+                </button>
 
                 {onOpenTranscript && (
                   <button

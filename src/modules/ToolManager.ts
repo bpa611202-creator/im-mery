@@ -5,6 +5,7 @@ import { agentOrchestrator } from './AgentOrchestrator';
 import { memoryManager } from './MemoryManager';
 import { locationService } from '../utils/locationService';
 import { cameraService } from './CameraService';
+import { showSystemNotification } from '../utils/notificationHelper';
 
 export interface ToolDefinition {
   name: string;
@@ -144,6 +145,10 @@ export class ToolManager {
       }, 2000);
       return { id, name, response: errResponse };
     }
+  }
+
+  async executeTool(name: string, args: Record<string, any>, callId?: string): Promise<ToolFunctionResponse> {
+    return this.execute(name, args, callId);
   }
 
   private registerDefaultTools() {
@@ -312,9 +317,7 @@ export class ToolManager {
 
         setTimeout(() => {
           stateManager.notify(`Timer alert: ${label}`, 'warning');
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('MERY Reminder', { body: label });
-          }
+          showSystemNotification('MERY Reminder', { body: label });
         }, ms);
 
         stateManager.notify(`Timer set: "${label}" for ${minutes} min`, 'success');
@@ -812,30 +815,476 @@ export class ToolManager {
         const title = String(args.title || 'MERY Notification');
         const body = String(args.body || '');
 
-        if ('Notification' in window) {
-          if (Notification.permission === 'granted') {
-            new Notification(title, { body });
-            stateManager.notify(`Notification sent: ${title}`, 'success');
-            return { success: true, delivered: true };
-          } else if (Notification.permission !== 'denied') {
-            const perm = await Notification.requestPermission();
-            if (perm === 'granted') {
-              new Notification(title, { body });
-              stateManager.notify(`Notification sent: ${title}`, 'success');
-              return { success: true, delivered: true };
-            }
-          }
-        }
+        const delivered = await showSystemNotification(title, { body });
+        stateManager.notify(title ? `${title}: ${body}` : body, 'info');
 
-        stateManager.notify(`${title}: ${body}`, 'info');
         return {
           success: true,
-          delivered: true,
-          fallback: 'Displayed as in-app notification.',
+          delivered,
+          fallback: delivered ? undefined : 'Displayed as in-app notification.',
         };
+      }
+    );
+
+    // 17. sendEmail (Send email via SMTP/Gmail)
+    this.registerTool(
+      {
+        name: 'sendEmail',
+        description:
+          "Sends an email to a recipient with subject and body on the user's behalf via SMTP/Gmail.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            to: {
+              type: 'STRING',
+              description: 'Recipient email address',
+            },
+            subject: {
+              type: 'STRING',
+              description: 'Subject line of the email',
+            },
+            body: {
+              type: 'STRING',
+              description: 'Main body content of the email',
+            },
+          },
+          required: ['to', 'subject', 'body'],
+        },
+      },
+      async (args) => {
+        const to = String(args.to || '').trim();
+        const subject = String(args.subject || '').trim();
+        const body = String(args.body || '').trim();
+
+        if (!to || !subject || !body) {
+          return { success: false, error: 'Missing to, subject, or body parameter.' };
+        }
+
+        try {
+          const res = await fetch('/api/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to, subject, body }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            stateManager.notify(`Email sent to ${to}: "${subject}"`, 'success');
+          } else {
+            stateManager.notify(data.message || 'Email delivery notice', 'warning');
+          }
+          return data;
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Email dispatch failed' };
+        }
+      }
+    );
+
+    // 18. readInbox (Read recent emails or inbox summary)
+    this.registerTool(
+      {
+        name: 'readInbox',
+        description: 'Reads recent emails or inbox summary from the connected email account.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            limit: {
+              type: 'NUMBER',
+              description: 'Maximum number of recent emails to retrieve (default: 5)',
+            },
+          },
+        },
+      },
+      async (args) => {
+        const limit = Number(args.limit || 5);
+        try {
+          const res = await fetch(`/api/email/inbox?limit=${limit}`);
+          return await res.json();
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to fetch inbox' };
+        }
+      }
+    );
+
+    // 19. sendWhatsAppMessage (Send WhatsApp message or automated report)
+    this.registerTool(
+      {
+        name: 'sendWhatsAppMessage',
+        description: 'Sends a WhatsApp message or automated report to a contact or group.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            to: {
+              type: 'STRING',
+              description: 'Contact name, phone number, or group ID',
+            },
+            message: {
+              type: 'STRING',
+              description: 'Content of the WhatsApp message',
+            },
+          },
+          required: ['to', 'message'],
+        },
+      },
+      async (args) => {
+        const to = String(args.to || '').trim();
+        const message = String(args.message || '').trim();
+
+        if (!to || !message) {
+          return { success: false, error: 'Missing recipient (to) or message.' };
+        }
+
+        try {
+          const res = await fetch('/api/whatsapp/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to, message }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            stateManager.notify(`WhatsApp message sent to ${to}`, 'success');
+          } else {
+            stateManager.notify(data.message || 'WhatsApp notice', 'warning');
+          }
+          return data;
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to send WhatsApp message' };
+        }
+      }
+    );
+
+    // 20. getWhatsAppGroupSummary (Read messages & participant summaries)
+    this.registerTool(
+      {
+        name: 'getWhatsAppGroupSummary',
+        description: 'Reads recent messages and participant summaries from a WhatsApp group.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            groupName: {
+              type: 'STRING',
+              description: 'Name or keyword of the WhatsApp group',
+            },
+          },
+          required: ['groupName'],
+        },
+      },
+      async (args) => {
+        const groupName = String(args.groupName || '').trim();
+        try {
+          const res = await fetch(`/api/whatsapp/group-summary?query=${encodeURIComponent(groupName)}`);
+          return await res.json();
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to fetch WhatsApp group summary' };
+        }
+      }
+    );
+
+    // 21. githubAction (GitHub Repository Automation)
+    this.registerTool(
+      {
+        name: 'githubAction',
+        description: 'Interacts with GitHub repositories (create issues, list open issues, inspect repo stats).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            repo: {
+              type: 'STRING',
+              description: "GitHub repository in 'owner/repo' format (e.g. 'octocat/Hello-World')",
+            },
+            action: {
+              type: 'STRING',
+              enum: ['createIssue', 'listIssues', 'getRepo'],
+              description: 'Action to perform on the repository',
+            },
+            payload: {
+              type: 'OBJECT',
+              description: 'Action payload (e.g. { title, body } for createIssue)',
+            },
+          },
+          required: ['repo', 'action'],
+        },
+      },
+      async (args) => {
+        const repo = String(args.repo || '').trim();
+        const action = String(args.action || '').trim();
+        const payload = args.payload || {};
+
+        try {
+          const res = await fetch('/api/connectors/github', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repo, action, payload }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            stateManager.notify(`GitHub [${action}] succeeded on ${repo}`, 'success');
+          } else {
+            stateManager.notify(data.message || 'GitHub notice', 'warning');
+          }
+          return data;
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'GitHub action failed' };
+        }
+      }
+    );
+
+    // 23. notionAction (Notion Workspace Automation)
+    this.registerTool(
+      {
+        name: 'notionAction',
+        description: 'Interacts with Notion workspace (create page/note, search database).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            targetId: {
+              type: 'STRING',
+              description: 'Page ID or Database ID in Notion',
+            },
+            action: {
+              type: 'STRING',
+              enum: ['createPage', 'search'],
+              description: 'Notion action to perform',
+            },
+            payload: {
+              type: 'OBJECT',
+              description: 'Action payload (e.g. { title, content } for createPage, { query } for search)',
+            },
+          },
+          required: ['targetId', 'action'],
+        },
+      },
+      async (args) => {
+        const targetId = String(args.targetId || '').trim();
+        const action = String(args.action || '').trim();
+        const payload = args.payload || {};
+
+        try {
+          const res = await fetch('/api/connectors/notion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetId, action, payload }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            stateManager.notify(`Notion action [${action}] completed!`, 'success');
+          }
+          return data;
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Notion action failed' };
+        }
+      }
+    );
+
+    // 24. sendTelegramMessage (Telegram Bot Message Dispatch)
+    this.registerTool(
+      {
+        name: 'sendTelegramMessage',
+        description: 'Sends a direct message or notification to the user via Telegram Bot.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            chatId: {
+              type: 'STRING',
+              description: 'Recipient Telegram chat ID (optional if default configured)',
+            },
+            text: {
+              type: 'STRING',
+              description: 'Message content to send via Telegram',
+            },
+          },
+          required: ['text'],
+        },
+      },
+      async (args) => {
+        const chatId = String(args.chatId || '').trim();
+        const text = String(args.text || '').trim();
+
+        try {
+          const res = await fetch('/api/connectors/telegram/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, text }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            stateManager.notify('Telegram message dispatched!', 'success');
+          } else {
+            stateManager.notify(data.message || 'Telegram notice', 'warning');
+          }
+          return data;
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Telegram dispatch failed' };
+        }
+      }
+    );
+
+    // 25. logStudySession (Study Tracker)
+    this.registerTool(
+      {
+        name: 'logStudySession',
+        description: 'Logs a completed study session with topic/subject, duration in minutes, and optional notes to persistent memory.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            subject: {
+              type: 'STRING',
+              description: 'Subject, topic, or language being studied',
+            },
+            duration_minutes: {
+              type: 'NUMBER',
+              description: 'Duration of the study session in minutes',
+            },
+            notes: {
+              type: 'STRING',
+              description: 'Key concepts learned, questions, or summary notes',
+            },
+          },
+          required: ['subject', 'duration_minutes'],
+        },
+      },
+      async (args) => {
+        const subject = String(args.subject || '').trim();
+        const duration_minutes = Number(args.duration_minutes) || 0;
+        const notes = args.notes ? String(args.notes).trim() : '';
+
+        try {
+          const res = await fetch('/api/study/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subject, duration_minutes, notes }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            stateManager.notify(`Logged ${duration_minutes}m study session on ${subject}!`, 'success');
+          }
+          return data;
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to log study session' };
+        }
+      }
+    );
+
+    // 26. getTodayStudySummary (Study Summary)
+    this.registerTool(
+      {
+        name: 'getTodayStudySummary',
+        description: "Retrieves a summary of today's total study time and subjects learned so far.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {},
+        },
+      },
+      async () => {
+        try {
+          const res = await fetch('/api/study/today');
+          const data = await res.json();
+          return data;
+        } catch (err: any) {
+          return { error: err?.message || 'Failed to fetch today study summary' };
+        }
+      }
+    );
+
+    // 27. getMarketPrice (Crypto & Stock Quotes)
+    this.registerTool(
+      {
+        name: 'getMarketPrice',
+        description: 'Looks up live price and 24h percentage change for a cryptocurrency (Bitcoin, Ethereum, Solana, etc.) or stock ticker (AAPL, TSLA, NVDA).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            symbol: {
+              type: 'STRING',
+              description: "Symbol or ticker name (e.g. 'BTC', 'ETH', 'SOL', 'AAPL')",
+            },
+          },
+          required: ['symbol'],
+        },
+      },
+      async (args) => {
+        const symbol = String(args.symbol || '').trim();
+        try {
+          const res = await fetch(`/api/markets/price?symbol=${encodeURIComponent(symbol)}`);
+          const data = await res.json();
+          if (data.symbol) {
+            stateManager.notify(`${data.symbol}: $${data.price.toLocaleString()} (${data.changePercent24h >= 0 ? '+' : ''}${data.changePercent24h.toFixed(2)}%)`, 'info');
+          }
+          return data;
+        } catch (err: any) {
+          return { error: err?.message || 'Failed to fetch market price' };
+        }
+      }
+    );
+
+    // 28. readDocument (Document Reader)
+    this.registerTool(
+      {
+        name: 'readDocument',
+        description: 'Reads the text contents of a document or note from the local data/documents workspace.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            path: {
+              type: 'STRING',
+              description: "Filename or relative path inside data/documents (e.g. 'welcome.md', 'notes.txt')",
+            },
+          },
+          required: ['path'],
+        },
+      },
+      async (args) => {
+        const path = String(args.path || '').trim();
+        try {
+          const res = await fetch(`/api/documents/read?path=${encodeURIComponent(path)}`);
+          const data = await res.json();
+          return data;
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to read document' };
+        }
+      }
+    );
+
+    // 29. saveDocument (Document Writer)
+    this.registerTool(
+      {
+        name: 'saveDocument',
+        description: 'Saves or overwrites a document with text or markdown content in the local data/documents workspace.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            path: {
+              type: 'STRING',
+              description: "Filename or relative path to save to (e.g. 'project_notes.md')",
+            },
+            content: {
+              type: 'STRING',
+              description: 'Full text or markdown content to write into the document',
+            },
+          },
+          required: ['path', 'content'],
+        },
+      },
+      async (args) => {
+        const path = String(args.path || '').trim();
+        const content = String(args.content || '');
+        try {
+          const res = await fetch('/api/documents/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, content }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            stateManager.notify(`Saved document: ${path}`, 'success');
+          }
+          return data;
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to save document' };
+        }
       }
     );
   }
 }
 
 export const toolManager = new ToolManager();
+

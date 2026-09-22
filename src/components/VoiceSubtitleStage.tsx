@@ -51,9 +51,7 @@ export const VoiceSubtitleStage: React.FC<VoiceSubtitleStageProps> = ({
                 : state === 'thinking'
                 ? 'Composing spoken reply...'
                 : fullDuplexActive
-                ? wakeWordMode
-                  ? 'Standby // Listening for "Hey MERY"'
-                  : 'Full-Duplex Room Mic // Always-Ready'
+                ? 'Full-Duplex Room Mic // Always-Ready'
                 : 'MERY // Connected & Present'}
             </span>
           </div>

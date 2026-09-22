@@ -34,33 +34,6 @@ export type GestureType =
   | 'greeting_wave'
   | 'listening_nod';
 
-export interface RigReferences {
-  baseRoot?: THREE.Group | null;
-  spine?: THREE.Group | null;
-  chest?: THREE.Group | null;
-  neck?: THREE.Group | null;
-  head?: THREE.Group | null;
-  rightArm?: THREE.Group | null;
-  rightForearm?: THREE.Group | null;
-  rightHand?: THREE.Group | null;
-  leftArm?: THREE.Group | null;
-  leftForearm?: THREE.Group | null;
-  leftHand?: THREE.Group | null;
-  leftEyelid?: THREE.Mesh | null;
-  rightEyelid?: THREE.Mesh | null;
-  mouthOpen?: THREE.Group | null;
-  mouthSmile?: THREE.Mesh | null;
-  mouthCavity?: THREE.Mesh | null;
-  leftPupil?: THREE.Group | null;
-  rightPupil?: THREE.Group | null;
-  leftJhumka?: THREE.Group | null;
-  rightJhumka?: THREE.Group | null;
-  leftHairStrand?: THREE.Group | null;
-  rightHairStrand?: THREE.Group | null;
-  backHair?: THREE.Group | null;
-  skirt?: THREE.Group | null;
-}
-
 export interface TransformTarget {
   rotX: number;
   rotY: number;
@@ -85,17 +58,17 @@ export const FEMININE_RELAXED_BASE = {
   leftShoulder: { rotX: 0.0, rotY: 0.02, rotZ: 0.08 },
   rightShoulder: { rotX: 0.0, rotY: -0.02, rotZ: -0.08 },
 
-  // Arms: Positioned gracefully behind the back
-  leftUpperArm: { rotX: 0.28, rotY: -0.30, rotZ: 1.34 },
-  rightUpperArm: { rotX: 0.28, rotY: 0.30, rotZ: -1.34 },
+  // Arms: Relaxed down at sides
+  leftUpperArm: { rotX: 0.12, rotY: -0.08, rotZ: -1.40 },
+  rightUpperArm: { rotX: 0.12, rotY: 0.08, rotZ: 1.40 },
 
-  // Forearms: Bent inward across the lower back / waist
-  leftLowerArm: { rotX: -0.42, rotY: -0.52, rotZ: 0.36 },
-  rightLowerArm: { rotX: -0.42, rotY: 0.52, rotZ: -0.36 },
+  // Forearms: Gently angled forward/inward
+  leftLowerArm: { rotX: -0.18, rotY: -0.10, rotZ: 0.12 },
+  rightLowerArm: { rotX: -0.18, rotY: 0.10, rotZ: -0.12 },
 
-  // Wrists / Hands: Softly clasped/resting together behind back
-  leftHand: { rotX: 0.08, rotY: -0.16, rotZ: 0.10 },
-  rightHand: { rotX: 0.08, rotY: 0.16, rotZ: -0.10 },
+  // Wrists / Hands: Relaxed neutral drape
+  leftHand: { rotX: 0.05, rotY: -0.05, rotZ: 0.05 },
+  rightHand: { rotX: 0.05, rotY: 0.05, rotZ: -0.05 },
 
   // Fingers: Naturally relaxed curl (not rigid flat planks)
   fingerCurlProximal: 0.24,
@@ -546,7 +519,7 @@ export class AvatarBehaviorEngine {
           this.activeGesture = 'none';
           this.gestureBlendWeight = 0;
           this.lastGestureEndTime = t;
-          this.gestureCooldown = 5.0 + Math.random() * 3.5;
+          this.gestureCooldown = 2.0 + Math.random() * 2.0;
         }
         return;
       }
@@ -569,8 +542,8 @@ export class AvatarBehaviorEngine {
         this.activeGesture = 'none';
         this.gestureBlendWeight = 0;
         this.lastGestureEndTime = t;
-        // Strict cooldown (5.0s to 8.5s) ensuring avatar stays predominantly in relaxed pose
-        this.gestureCooldown = 5.0 + Math.random() * 3.5;
+        // Cooldown ensuring natural cadence
+        this.gestureCooldown = 2.0 + Math.random() * 2.0;
       }
     }
 
@@ -579,12 +552,12 @@ export class AvatarBehaviorEngine {
       const timeSinceLast = t - this.lastGestureEndTime;
       const speakingDuration = t - this.speechTracking.phraseStartTime;
 
-      // Ensure strict minimum cooldown before allowing another gesture
-      if (timeSinceLast > this.gestureCooldown && speakingDuration > 1.4) {
+      // Ensure minimum cooldown before allowing another gesture
+      if (timeSinceLast > this.gestureCooldown && speakingDuration > 0.35) {
         // Volume or energy threshold from visemes
         const energy = visemes?.volume || (visemes?.mouthOpen || 0);
 
-        if (energy > 0.15 || speakingDuration > 2.8) {
+        if (energy > 0.08 || speakingDuration > 0.6) {
           // Select gesture based on emotion & context
           const emo = this.currentEmotion;
           let selected: GestureType = 'explain_right';
@@ -610,7 +583,7 @@ export class AvatarBehaviorEngine {
           this.gestureDuration = dur;
           this.gestureBlendWeight = 0;
           // Pre-set cooldown for after this gesture finishes
-          this.gestureCooldown = 5.0 + Math.random() * 3.5;
+          this.gestureCooldown = 2.0 + Math.random() * 2.0;
         }
       }
     }
@@ -928,33 +901,34 @@ export class AvatarBehaviorEngine {
         expressionManager.setValue('oh', 0);
       }
 
-      // 3. Emotion Mapping with Subtle Micro-Expressions
+      // 3. Emotion Mapping with Expressive Facial Presence
       const emo = this.currentEmotion;
-      let happyVal = 0.2; // Baseline gentle feminine warm smile
+      let happyVal = 0.25; // baseline (no emotion)
       let surprisedVal = 0;
       let sadVal = 0;
-      let relaxedVal = 0.25;
+      let relaxedVal = 0.2; // baseline (no emotion)
 
       if (emo === 'happy' || emo === 'playful') {
-        happyVal = 0.65;
-        relaxedVal = 0.4;
-      } else if (emo === 'excited') {
-        happyVal = 0.8;
-        surprisedVal = 0.25;
-      } else if (emo === 'warm' || emo === 'supportive') {
-        happyVal = 0.45;
-        relaxedVal = 0.55;
-      } else if (emo === 'curious' || emo === 'thoughtful') {
+        happyVal = 0.85;
         surprisedVal = 0.15;
         relaxedVal = 0.3;
+      } else if (emo === 'excited') {
+        happyVal = 0.95;
+        surprisedVal = 0.4;
+      } else if (emo === 'warm' || emo === 'supportive') {
+        happyVal = 0.55;
+        relaxedVal = 0.45;
+      } else if (emo === 'curious' || emo === 'thoughtful') {
+        surprisedVal = 0.3;
+        relaxedVal = 0.25;
       } else if (emo === 'confused' || emo === 'nervous') {
-        surprisedVal = 0.25;
+        surprisedVal = 0.4;
       } else if (emo === 'sad' || emo === 'disappointed') {
-        sadVal = 0.45;
+        sadVal = 0.55;
         happyVal = 0;
       } else if (emo === 'calm') {
-        relaxedVal = 0.6;
-        happyVal = 0.25;
+        relaxedVal = 0.55;
+        happyVal = 0.3;
       }
 
       expressionManager.setValue('happy', happyVal);
@@ -963,129 +937,6 @@ export class AvatarBehaviorEngine {
       expressionManager.setValue('relaxed', relaxedVal);
 
       expressionManager.update();
-    }
-  }
-
-  /**
-   * Applies behavioral targets to the Signature MeryExactAvatarRig
-   */
-  public applyToMeryRig(
-    refs: RigReferences,
-    dt: number,
-    currentTime: number,
-    isSpeaking: boolean,
-    visemes?: VisemeWeights
-  ) {
-    const blendFactor = Math.min(1.0, dt * 8.0);
-    const fastBlend = Math.min(1.0, dt * 18.0);
-
-    // Spine & Chest
-    const spineT = this.currentBoneTargets['spine'];
-    if (refs.spine && spineT) {
-      refs.spine.rotation.x = THREE.MathUtils.lerp(refs.spine.rotation.x, spineT.rotX, blendFactor);
-      refs.spine.rotation.z = THREE.MathUtils.lerp(refs.spine.rotation.z, spineT.rotZ, blendFactor);
-    }
-
-    const chestT = this.currentBoneTargets['chest'];
-    if (refs.chest && chestT) {
-      refs.chest.rotation.x = THREE.MathUtils.lerp(refs.chest.rotation.x, chestT.rotX, blendFactor);
-      refs.chest.rotation.z = THREE.MathUtils.lerp(refs.chest.rotation.z, chestT.rotZ, blendFactor);
-    }
-
-    // Neck & Head
-    const neckT = this.currentBoneTargets['neck'];
-    if (refs.neck && neckT) {
-      refs.neck.rotation.x = THREE.MathUtils.lerp(refs.neck.rotation.x, neckT.rotX, blendFactor);
-      refs.neck.rotation.y = THREE.MathUtils.lerp(refs.neck.rotation.y, neckT.rotY, blendFactor);
-      refs.neck.rotation.z = THREE.MathUtils.lerp(refs.neck.rotation.z, neckT.rotZ, blendFactor);
-    }
-
-    const headT = this.currentBoneTargets['head'];
-    if (refs.head && headT) {
-      refs.head.rotation.x = THREE.MathUtils.lerp(refs.head.rotation.x, headT.rotX, blendFactor);
-      refs.head.rotation.y = THREE.MathUtils.lerp(refs.head.rotation.y, headT.rotY, blendFactor);
-      refs.head.rotation.z = THREE.MathUtils.lerp(refs.head.rotation.z, headT.rotZ, blendFactor);
-    }
-
-    // Arms & Hands
-    const rArmT = this.currentBoneTargets['rightUpperArm'];
-    if (refs.rightArm && rArmT) {
-      refs.rightArm.rotation.x = THREE.MathUtils.lerp(refs.rightArm.rotation.x, rArmT.rotX, blendFactor);
-      refs.rightArm.rotation.y = THREE.MathUtils.lerp(refs.rightArm.rotation.y, rArmT.rotY, blendFactor);
-      refs.rightArm.rotation.z = THREE.MathUtils.lerp(refs.rightArm.rotation.z, rArmT.rotZ, blendFactor);
-    }
-
-    const rForearmT = this.currentBoneTargets['rightLowerArm'];
-    if (refs.rightForearm && rForearmT) {
-      refs.rightForearm.rotation.x = THREE.MathUtils.lerp(refs.rightForearm.rotation.x, rForearmT.rotX, blendFactor);
-      refs.rightForearm.rotation.y = THREE.MathUtils.lerp(refs.rightForearm.rotation.y, rForearmT.rotY, blendFactor);
-      refs.rightForearm.rotation.z = THREE.MathUtils.lerp(refs.rightForearm.rotation.z, rForearmT.rotZ, blendFactor);
-    }
-
-    const rHandT = this.currentBoneTargets['rightHand'];
-    if (refs.rightHand && rHandT) {
-      refs.rightHand.rotation.x = THREE.MathUtils.lerp(refs.rightHand.rotation.x, rHandT.rotX, blendFactor);
-      refs.rightHand.rotation.y = THREE.MathUtils.lerp(refs.rightHand.rotation.y, rHandT.rotY, blendFactor);
-      refs.rightHand.rotation.z = THREE.MathUtils.lerp(refs.rightHand.rotation.z, rHandT.rotZ, blendFactor);
-    }
-
-    const lArmT = this.currentBoneTargets['leftUpperArm'];
-    if (refs.leftArm && lArmT) {
-      refs.leftArm.rotation.x = THREE.MathUtils.lerp(refs.leftArm.rotation.x, lArmT.rotX, blendFactor);
-      refs.leftArm.rotation.y = THREE.MathUtils.lerp(refs.leftArm.rotation.y, lArmT.rotY, blendFactor);
-      refs.leftArm.rotation.z = THREE.MathUtils.lerp(refs.leftArm.rotation.z, lArmT.rotZ, blendFactor);
-    }
-
-    const lForearmT = this.currentBoneTargets['leftLowerArm'];
-    if (refs.leftForearm && lForearmT) {
-      refs.leftForearm.rotation.x = THREE.MathUtils.lerp(refs.leftForearm.rotation.x, lForearmT.rotX, blendFactor);
-      refs.leftForearm.rotation.y = THREE.MathUtils.lerp(refs.leftForearm.rotation.y, lForearmT.rotY, blendFactor);
-      refs.leftForearm.rotation.z = THREE.MathUtils.lerp(refs.leftForearm.rotation.z, lForearmT.rotZ, blendFactor);
-    }
-
-    const lHandT = this.currentBoneTargets['leftHand'];
-    if (refs.leftHand && lHandT) {
-      refs.leftHand.rotation.x = THREE.MathUtils.lerp(refs.leftHand.rotation.x, lHandT.rotX, blendFactor);
-      refs.leftHand.rotation.y = THREE.MathUtils.lerp(refs.leftHand.rotation.y, lHandT.rotY, blendFactor);
-      refs.leftHand.rotation.z = THREE.MathUtils.lerp(refs.leftHand.rotation.z, lHandT.rotZ, blendFactor);
-    }
-
-    // Pupils & Eye Saccades
-    if (refs.leftPupil && refs.rightPupil) {
-      refs.leftPupil.position.x = this.gazeState.currentEyeX;
-      refs.leftPupil.position.y = this.gazeState.currentEyeY;
-      refs.rightPupil.position.x = this.gazeState.currentEyeX;
-      refs.rightPupil.position.y = this.gazeState.currentEyeY;
-    }
-
-    // Eyelids Blinking
-    if (refs.leftEyelid && refs.rightEyelid) {
-      const bAmt = this.blinkState.blinkAmount;
-      refs.leftEyelid.scale.y = THREE.MathUtils.lerp(refs.leftEyelid.scale.y, bAmt, fastBlend);
-      refs.rightEyelid.scale.y = THREE.MathUtils.lerp(refs.rightEyelid.scale.y, bAmt, fastBlend);
-    }
-
-    // Mouth Visemes & Lip-sync
-    if (refs.mouthOpen && refs.mouthSmile) {
-      const openAmount = visemes?.mouthOpen || 0;
-      const isHappy =
-        this.currentEmotion === 'warm' ||
-        this.currentEmotion === 'playful' ||
-        this.currentEmotion === 'happy' ||
-        this.currentEmotion === 'excited';
-      const smileAmount = isHappy ? 0.65 : 0.25;
-
-      const targetScaleX = 0.3 + ((visemes?.ih || 0) * 0.5 + (visemes?.ee || 0) * 0.4) + smileAmount * 0.25;
-      const targetScaleY = Math.max(
-        0.04,
-        openAmount * 1.25 + (visemes?.aa || 0) * 0.85 + (visemes?.oh || 0) * 0.75
-      );
-
-      refs.mouthOpen.scale.x = THREE.MathUtils.lerp(refs.mouthOpen.scale.x, targetScaleX, fastBlend);
-      refs.mouthOpen.scale.y = THREE.MathUtils.lerp(refs.mouthOpen.scale.y, targetScaleY, fastBlend);
-
-      refs.mouthOpen.visible = openAmount > 0.05;
-      refs.mouthSmile.visible = openAmount <= 0.05;
     }
   }
 

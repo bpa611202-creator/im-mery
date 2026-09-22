@@ -1,4 +1,5 @@
 import { SystemApp, VirtualFile, SystemReminder, SystemNote, SmartHomeDevice, SafetyActionRequest } from '../types';
+import { showSystemNotification } from './notificationHelper';
 
 export class SystemController {
   private apps: SystemApp[] = [
@@ -317,19 +318,12 @@ export class SystemController {
     this.saveToStorage();
 
     // Schedule notification trigger
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission();
-      }
+    if (typeof window !== 'undefined') {
       setTimeout(() => {
-        if (Notification.permission === 'granted') {
-          try {
-            new Notification(`MERY Reminder: ${title}`, {
-              body: "I promised I'd remind you about this. Take care!",
-              icon: '/icon.png',
-            });
-          } catch {}
-        }
+        showSystemNotification(`MERY Reminder: ${title}`, {
+          body: "I promised I'd remind you about this. Take care!",
+          icon: '/icon.png',
+        });
       }, minutesFromNow * 60 * 1000);
     }
 
